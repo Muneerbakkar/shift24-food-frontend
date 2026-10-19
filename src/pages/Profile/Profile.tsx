@@ -195,38 +195,133 @@ export function ProfilePage() {
   const [loadingSubs, setLoadingSubs] = useState(true);
   const [managingSub, setManagingSub] = useState<any | null>(null);
 
-  const handleTogglePause = async (sub: any) => {
-    const isPaused = sub.status === 'Paused';
-    const newStatus = isPaused ? 'Active' : 'Paused';
-    const actionText = isPaused ? 'resume' : 'pause';
+  // Pause Delivery with Date Selection Modal State
+  const [pausingSub, setPausingSub] = useState<any | null>(null);
+  const [pauseStartDate, setPauseStartDate] = useState<string>('');
+  const [pauseResumeMode, setPauseResumeMode] = useState<'3days' | '1week' | '2weeks' | 'custom' | 'indefinite'>('1week');
+  const [pauseCustomResumeDate, setPauseCustomResumeDate] = useState<string>('');
+  const [isSubmittingPause, setIsSubmittingPause] = useState(false);
 
-    if (!window.confirm(`Are you sure you want to ${actionText} daily meal deliveries for ${sub.planName}?`)) {
+  const getCalculatedResumeDate = (startDateStr: string, mode: string, customDateStr: string) => {
+    if (mode === 'indefinite') return null;
+    if (mode === 'custom') return customDateStr || null;
+    
+    const base = startDateStr ? new Date(startDateStr) : new Date();
+    const daysToAdd = mode === '3days' ? 3 : mode === '1week' ? 7 : 14;
+    const target = new Date(base);
+    target.setDate(target.getDate() + daysToAdd);
+    return target.toISOString().split('T')[0];
+  };
+
+  const openPauseModal = (sub: any) => {
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+    const nextWeek = new Date(tomorrow);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    const nextWeekStr = nextWeek.toISOString().split('T')[0];
+
+    setPausingSub(sub);
+    setPauseStartDate(sub.pauseStartDate || tomorrowStr);
+    setPauseResumeMode('1week');
+    setPauseCustomResumeDate(sub.pauseEndDate || nextWeekStr);
+  };
+
+  const handleResumeDelivery = async (sub: any) => {
+    if (!window.confirm(`Resume meal deliveries for ${sub.planName}? Your scheduled meal preparation will restart.`)) {
       return;
     }
 
     try {
       const { updateBackendSubscriptionStatus } = await import('../../services/api');
-      await updateBackendSubscriptionStatus(sub.id, newStatus);
+      await updateBackendSubscriptionStatus(sub.id, 'Active');
 
-      setSubscriptionsList(prev => prev.map(s => s.id === sub.id ? { ...s, status: newStatus } : s));
-      if (managingSub && managingSub.id === sub.id) {
-        setManagingSub({ ...managingSub, status: newStatus });
-      }
+      setSubscriptionsList(prev => prev.map(s => s.id === sub.id ? { 
+        ...s, 
+        status: 'Active',
+        pauseStartDate: null,
+        pauseEndDate: null,
+        nextDelivery: 'Tomorrow, 07:30 AM'
+      } : s));
 
       const stored = localStorage.getItem('activeSubscription');
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
           if (parsed.id === sub.id || parsed.subId === sub.id || sub.id === 'sub_active') {
-            parsed.status = newStatus;
+            parsed.status = 'Active';
+            parsed.pauseStartDate = null;
+            parsed.pauseEndDate = null;
+            parsed.nextDelivery = 'Tomorrow, 07:30 AM';
             localStorage.setItem('activeSubscription', JSON.stringify(parsed));
           }
         } catch (e) {}
       }
 
-      toast.success(newStatus === 'Paused' ? 'Deliveries paused. Resume anytime!' : 'Deliveries resumed! Your meal routine is active.');
+      toast.success('Deliveries resumed! Your daily meal routine is active.');
     } catch (err: any) {
-      toast.error('Failed to update delivery status');
+      toast.error('Failed to resume delivery');
+    }
+  };
+
+  const handleConfirmPause = async () => {
+    if (!pausingSub) return;
+    setIsSubmittingPause(true);
+
+    const calculatedResumeDate = getCalculatedResumeDate(pauseStartDate, pauseResumeMode, pauseCustomResumeDate);
+
+    try {
+      const { updateBackendSubscriptionStatus } = await import('../../services/api');
+      await updateBackendSubscriptionStatus(pausingSub.id, 'Paused', {
+        pauseStartDate,
+        pauseEndDate: calculatedResumeDate || undefined
+      });
+
+      const nextDeliveryText = calculatedResumeDate 
+        ? `Resuming on ${new Date(calculatedResumeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+        : `Paused from ${new Date(pauseStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+
+      setSubscriptionsList(prev => prev.map(s => s.id === pausingSub.id ? { 
+        ...s, 
+        status: 'Paused',
+        pauseStartDate,
+        pauseEndDate: calculatedResumeDate || null,
+        nextDelivery: nextDeliveryText
+      } : s));
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.id === pausingSub.id || parsed.subId === pausingSub.id || pausingSub.id === 'sub_active') {
+            parsed.status = 'Paused';
+            parsed.pauseStartDate = pauseStartDate;
+            parsed.pauseEndDate = calculatedResumeDate || null;
+            parsed.nextDelivery = nextDeliveryText;
+            localStorage.setItem('activeSubscription', JSON.stringify(parsed));
+          }
+        } catch (e) {}
+      }
+
+      toast.success(calculatedResumeDate 
+        ? `Deliveries paused until ${new Date(calculatedResumeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Resume anytime!`
+        : 'Deliveries paused. Resume anytime from your profile!'
+      );
+      setPausingSub(null);
+    } catch (err: any) {
+      toast.error('Failed to pause delivery');
+    } finally {
+      setIsSubmittingPause(false);
+    }
+  };
+
+  const handleTogglePause = (sub: any) => {
+    if (sub.status === 'Paused') {
+      handleResumeDelivery(sub);
+    } else {
+      openPauseModal(sub);
     }
   };
 
@@ -385,7 +480,11 @@ export function ProfilePage() {
                 endDate: s.endDate || 'Ongoing',
                 duration: s.duration || `${s.durationDays || 30} Days`,
                 meals: s.slotLabel ? `${s.mealsPerDay || 1} Meal (${s.slotLabel})` : 'Daily Meals',
-                address: s.address || 'Delivery Address'
+                address: s.address || 'Delivery Address',
+                pauseStartDate: s.pauseStartDate || null,
+                pauseEndDate: s.pauseEndDate || null,
+                allergies: s.allergies || [],
+                preferences: s.preferences || []
               }));
               setSubscriptionsList(mapped);
 
@@ -439,7 +538,9 @@ export function ProfilePage() {
           endDate: localSub.endDate || 'Ongoing',
           duration: localSub.duration || '7 Days',
           meals: localSub.meals || '1 Meal Daily',
-          address: subAddress
+          address: subAddress,
+          pauseStartDate: localSub.pauseStartDate || null,
+          pauseEndDate: localSub.pauseEndDate || null
         }]);
 
         if (localSub.address && !localSub.address.includes('123 Health Street') && !localSub.address.includes('123 Main St')) {
@@ -609,6 +710,41 @@ export function ProfilePage() {
                               
                               {isExpanded && (
                                 <div className="px-6 pb-6 pt-2 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
+                                  {sub.status === 'Paused' && (
+                                    <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                                          <Pause className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-bold text-amber-900">
+                                            Meal Deliveries are currently Paused
+                                          </p>
+                                          <p className="text-xs text-amber-700 mt-0.5">
+                                            {sub.pauseStartDate && sub.pauseEndDate ? (
+                                              <>On hold from <strong className="font-semibold">{sub.pauseStartDate}</strong> until <strong className="font-semibold">{sub.pauseEndDate}</strong>.</>
+                                            ) : sub.pauseStartDate ? (
+                                              <>On hold starting from <strong className="font-semibold">{sub.pauseStartDate}</strong>.</>
+                                            ) : (
+                                              <>Temporarily on hold. Your remaining paid days are safe.</>
+                                            )}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleTogglePause(sub);
+                                        }}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+                                      >
+                                        <Play className="w-3.5 h-3.5 fill-current" />
+                                        <span>Resume Deliveries</span>
+                                      </button>
+                                    </div>
+                                  )}
+
                                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-4">
                                     <div>
                                       <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Duration</p>
@@ -1505,6 +1641,178 @@ export function ProfilePage() {
                   <>
                     <Check className="w-4 h-4" />
                     <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pause Delivery with Date Selection Modal */}
+      {pausingSub && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-6 bg-gradient-to-r from-amber-600 to-amber-700 text-white flex justify-between items-start">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0">
+                  <Pause className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight">Pause Meal Deliveries</h3>
+                  <p className="text-amber-100 text-xs font-medium mt-0.5">
+                    {pausingSub.planName} &bull; ID: {pausingSub.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPausingSub(null)}
+                className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* 1. Pause Start Date */}
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
+                  1. Start Pause On
+                </label>
+                <p className="text-xs text-slate-500 mb-3">When should we temporarily stop preparing your meals?</p>
+
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tom = new Date(Date.now() + 86400000);
+                      setPauseStartDate(tom.toISOString().split('T')[0]);
+                    }}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
+                      pauseStartDate === new Date(Date.now() + 86400000).toISOString().split('T')[0]
+                        ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-500/20'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Tomorrow ({new Date(Date.now() + 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      setPauseStartDate(todayStr);
+                    }}
+                    className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
+                      pauseStartDate === new Date().toISOString().split('T')[0]
+                        ? 'bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-500/20'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Today ({new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="date"
+                    min={new Date().toISOString().split('T')[0]}
+                    value={pauseStartDate}
+                    onChange={(e) => setPauseStartDate(e.target.value)}
+                    className="w-full p-3 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              {/* 2. Resume Date */}
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1.5">
+                  2. Resume Deliveries
+                </label>
+                <p className="text-xs text-slate-500 mb-3">How long would you like to put deliveries on hold?</p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+                  {[
+                    { id: '3days', label: '3 Days', desc: 'Quick break' },
+                    { id: '1week', label: '1 Week', desc: '7 days hold' },
+                    { id: '2weeks', label: '2 Weeks', desc: '14 days hold' },
+                    { id: 'custom', label: 'Pick Date', desc: 'Specific return' },
+                    { id: 'indefinite', label: 'Indefinite', desc: 'Until I resume' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setPauseResumeMode(opt.id as any)}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        pauseResumeMode === opt.id
+                          ? 'bg-amber-50 border-amber-500 text-amber-900 font-bold ring-2 ring-amber-500/20'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="block text-xs font-bold">{opt.label}</span>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {pauseResumeMode === 'custom' && (
+                  <div className="mt-2 animate-in fade-in">
+                    <span className="text-[11px] font-bold text-slate-500 block mb-1.5">Select Resume Date:</span>
+                    <input
+                      type="date"
+                      min={pauseStartDate || new Date().toISOString().split('T')[0]}
+                      value={pauseCustomResumeDate}
+                      onChange={(e) => setPauseCustomResumeDate(e.target.value)}
+                      className="w-full p-3 rounded-xl border border-slate-200 text-xs sm:text-sm font-semibold text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Pause Summary Box */}
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-amber-950">
+                  <Shield className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Remaining Days Guaranteed</span>
+                </div>
+                <p className="text-amber-800 leading-relaxed text-[11px]">
+                  {pauseResumeMode === 'indefinite' ? (
+                    <>Deliveries will be on hold starting from <strong className="font-bold">{pauseStartDate || 'selected date'}</strong>. You can resume anytime from your profile without losing any paid days.</>
+                  ) : (
+                    <>Deliveries will be on hold starting <strong className="font-bold">{pauseStartDate || 'selected date'}</strong> and will automatically resume on <strong className="font-bold">{getCalculatedResumeDate(pauseStartDate, pauseResumeMode, pauseCustomResumeDate) || 'selected resume date'}</strong>.</>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setPausingSub(null)}
+                className="px-4 py-2.5 text-slate-600 hover:text-slate-800 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Keep Deliveries Active
+              </button>
+
+              <button
+                type="button"
+                disabled={isSubmittingPause}
+                onClick={handleConfirmPause}
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingPause ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Pausing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-4 h-4" />
+                    <span>Confirm & Pause Delivery</span>
                   </>
                 )}
               </button>

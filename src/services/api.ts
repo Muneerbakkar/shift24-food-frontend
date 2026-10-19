@@ -180,12 +180,16 @@ export async function createBackendSubscription(subscriptionData: any) {
   return res.json();
 }
 
-export async function updateBackendSubscriptionStatus(id: string, status: string) {
+export async function updateBackendSubscriptionStatus(
+  id: string, 
+  status: string, 
+  details?: { pauseStartDate?: string; pauseEndDate?: string }
+) {
   const res = await fetch(`${API_BASE}/subscriptions/${id}/status`, {
     method: 'PATCH',
     credentials: 'include',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ status })
+    body: JSON.stringify({ status, ...details })
   });
   return res.json();
 }
