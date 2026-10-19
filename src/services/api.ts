@@ -200,6 +200,16 @@ export async function updateBackendSubscriptionSlot(id: string, slot: string, sl
   return res.json();
 }
 
+export async function updateBackendSubscriptionDetails(id: string, data: Record<string, any>) {
+  const res = await fetch(`${API_BASE}/subscriptions/${id}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
 // -------------------------------------------------------------
 // Orders & Dispatch
 // -------------------------------------------------------------

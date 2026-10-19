@@ -257,6 +257,131 @@ export function ProfilePage() {
     }
   };
 
+  // Manage Plan Edit States
+  const [manageTab, setManageTab] = useState<'schedule' | 'address' | 'dietary' | 'actions'>('schedule');
+  const [editDuration, setEditDuration] = useState('26 Days');
+  const [editMealsPerDay, setEditMealsPerDay] = useState('1');
+  const [editSlot, setEditSlot] = useState('breakfast');
+  const [editAddress, setEditAddress] = useState('');
+  const [editAllergies, setEditAllergies] = useState<string[]>([]);
+  const [editPreferences, setEditPreferences] = useState<string[]>([]);
+  const [isSavingPlan, setIsSavingPlan] = useState(false);
+
+  const openManagePlan = (sub: any) => {
+    setManagingSub(sub);
+    setIsCancellingSub(false);
+    setManageTab('schedule');
+
+    setEditDuration(sub.duration || '26 Days');
+
+    const mealsText = String(sub.meals || '');
+    if (mealsText.includes('3')) {
+      setEditMealsPerDay('3');
+      setEditSlot('all');
+    } else if (mealsText.includes('2')) {
+      setEditMealsPerDay('2');
+      if (mealsText.toLowerCase().includes('dinner') && mealsText.toLowerCase().includes('lunch')) {
+        setEditSlot('lunch-dinner');
+      } else if (mealsText.toLowerCase().includes('dinner')) {
+        setEditSlot('breakfast-dinner');
+      } else {
+        setEditSlot('breakfast-lunch');
+      }
+    } else {
+      setEditMealsPerDay('1');
+      if (mealsText.toLowerCase().includes('lunch')) setEditSlot('lunch');
+      else if (mealsText.toLowerCase().includes('dinner')) setEditSlot('dinner');
+      else setEditSlot('breakfast');
+    }
+
+    setEditAddress(sub.address || '');
+    setEditAllergies(Array.isArray(sub.allergies) ? [...sub.allergies] : [...allergies]);
+    setEditPreferences(Array.isArray(sub.preferences) ? [...sub.preferences] : [...preferences]);
+  };
+
+  const handleSavePlanChanges = async () => {
+    if (!managingSub) return;
+    setIsSavingPlan(true);
+
+    let slotLabel = 'Breakfast (07:00 - 08:30 AM)';
+    if (editMealsPerDay === '3') {
+      slotLabel = 'Breakfast, Lunch & Dinner';
+    } else if (editMealsPerDay === '2') {
+      if (editSlot === 'breakfast-lunch') slotLabel = 'Breakfast & Lunch';
+      else if (editSlot === 'lunch-dinner') slotLabel = 'Lunch & Dinner';
+      else slotLabel = 'Breakfast & Dinner';
+    } else {
+      if (editSlot === 'lunch') slotLabel = 'Lunch (12:00 - 01:30 PM)';
+      else if (editSlot === 'dinner') slotLabel = 'Dinner (07:00 - 08:30 PM)';
+      else slotLabel = 'Breakfast (07:00 - 08:30 AM)';
+    }
+
+    const payload = {
+      duration: editDuration,
+      durationDays: parseInt(editDuration) || 26,
+      mealsPerDay: editMealsPerDay,
+      slot: editSlot,
+      slotLabel,
+      address: editAddress.trim() || managingSub.address,
+      allergies: editAllergies,
+      preferences: editPreferences
+    };
+
+    try {
+      const { updateBackendSubscriptionDetails } = await import('../../services/api');
+      await updateBackendSubscriptionDetails(managingSub.id, payload);
+
+      const updatedMeals = `${editMealsPerDay} Meal${editMealsPerDay === '1' ? '' : 's'} (${slotLabel})`;
+
+      setSubscriptionsList(prev => prev.map(s => {
+        if (s.id === managingSub.id) {
+          return {
+            ...s,
+            duration: editDuration,
+            meals: updatedMeals,
+            address: payload.address,
+            allergies: editAllergies,
+            preferences: editPreferences
+          };
+        }
+        return s;
+      }));
+
+      setManagingSub(prev => prev ? {
+        ...prev,
+        duration: editDuration,
+        meals: updatedMeals,
+        address: payload.address,
+        allergies: editAllergies,
+        preferences: editPreferences
+      } : null);
+
+      setAllergies(editAllergies);
+      setPreferences(editPreferences);
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.id === managingSub.id || parsed.subId === managingSub.id || managingSub.id === 'sub_active') {
+            localStorage.setItem('activeSubscription', JSON.stringify({
+              ...parsed,
+              ...payload,
+              meals: updatedMeals
+            }));
+          }
+        } catch (e) {}
+      }
+
+      toast.success('Subscription plan updated successfully!');
+      setManagingSub(null);
+    } catch (err: any) {
+      toast.error('Failed to update plan. Please try again.');
+    } finally {
+      setIsSavingPlan(false);
+    }
+  };
+
   // Load subscriptions for logged-in user
   useEffect(() => {
     const loadUserSubscriptions = async () => {
@@ -721,8 +846,7 @@ export function ProfilePage() {
                                       type="button"
                                       onClick={(e) => { 
                                         e.stopPropagation(); 
-                                        setManagingSub(sub); 
-                                        setIsCancellingSub(false); 
+                                        openManagePlan(sub); 
                                       }}
                                       className="px-5 py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100 transition-colors flex items-center gap-2 text-sm shadow-xs"
                                     >
@@ -1079,10 +1203,10 @@ export function ProfilePage() {
 
       {/* Manage Plan Modal */}
       {managingSub && (
-        <div className="fixed inset-0 bg-slate-900/60 z-[999] flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white max-w-lg w-full rounded-3xl shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-slate-900/60 z-[999] flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white max-w-xl w-full rounded-3xl shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="p-6 bg-slate-900 text-white flex justify-between items-start">
+            <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-start shrink-0">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
@@ -1107,166 +1231,420 @@ export function ProfilePage() {
               </button>
             </div>
 
-            <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
-              {/* Daily Meal Delivery Time Windows */}
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <Clock className="w-4 h-4 text-emerald-600" />
-                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                    Daily Meal Delivery Windows
-                  </h4>
-                </div>
-                <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                  Chef-crafted meals are dispatched fresh each day to arrive within these specified meal timeframes:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-2xs">
-                    <span className="text-base block mb-0.5">🌅</span>
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">Breakfast</span>
-                    <span className="text-xs font-black text-slate-900">07:00 - 08:30 AM</span>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-2xs">
-                    <span className="text-base block mb-0.5">☀️</span>
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">Lunch</span>
-                    <span className="text-xs font-black text-slate-900">12:00 - 01:30 PM</span>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-2xs">
-                    <span className="text-base block mb-0.5">🌙</span>
-                    <span className="text-[11px] font-bold text-slate-500 uppercase block">Dinner</span>
-                    <span className="text-xs font-black text-slate-900">07:00 - 08:30 PM</span>
-                  </div>
-                </div>
-              </div>
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-slate-200 px-4 sm:px-6 bg-slate-50 overflow-x-auto gap-1.5 py-2 shrink-0">
+              <button 
+                type="button" 
+                onClick={() => setManageTab('schedule')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'schedule' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                Duration & Meals
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setManageTab('address')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'address' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                Delivery Address
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setManageTab('dietary')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'dietary' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                Dietary & Allergies
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setManageTab('actions')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'actions' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                Pause / Cancel
+              </button>
+            </div>
 
-              {/* Plan Summary */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Subscription Summary</h4>
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <span className="text-slate-400 block font-semibold mb-0.5">Duration</span>
-                    <span className="font-bold text-slate-900">{managingSub.duration}</span>
-                    <span className="text-slate-500 block text-[11px] mt-0.5">{managingSub.startDate} – {managingSub.endDate}</span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <span className="text-slate-400 block font-semibold mb-0.5">Meals Included</span>
-                    <span className="font-bold text-slate-900">{managingSub.meals}</span>
-                    <span className="text-slate-500 block text-[11px] mt-0.5">Delivered to schedule</span>
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                  <span className="text-slate-400 block font-semibold mb-0.5">Delivery Destination</span>
-                  <span className="font-bold text-slate-800 leading-relaxed block">{managingSub.address}</span>
-                </div>
-              </div>
-
-              {/* Pause / Resume action inside modal */}
-              {managingSub.status !== 'Cancelled' && (
-                <div className="pt-2">
-                  <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70">
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">
-                        {managingSub.status === 'Paused' ? 'Resume Deliveries' : 'Pause Deliveries'}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {managingSub.status === 'Paused' 
-                          ? 'Resume daily meals starting next scheduled slot' 
-                          : 'Temporarily put deliveries on hold without losing days'}
-                      </p>
+            {/* Tab Content (Scrollable) */}
+            <div className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1">
+              {manageTab === 'schedule' && (
+                <div className="space-y-6 animate-in fade-in">
+                  {/* Duration Updation */}
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
+                      Plan Duration
+                    </label>
+                    <p className="text-xs text-slate-500 mb-3">Choose how long you want your meal subscription to run:</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {['7 Days', '14 Days', '26 Days', '30 Days'].map((dur) => (
+                        <button
+                          key={dur}
+                          type="button"
+                          onClick={() => setEditDuration(dur)}
+                          className={`py-3 px-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                            editDuration === dur
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold shadow-xs ring-2 ring-emerald-500/20'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-medium'
+                          }`}
+                        >
+                          <span className="block text-sm font-bold">{dur}</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            {dur === '7 Days' ? '1 Week' : dur === '14 Days' ? '2 Weeks' : dur === '26 Days' ? '26 Meals' : 'Full Month'}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleTogglePause(managingSub)}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer ${
-                        managingSub.status === 'Paused'
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
-                      }`}
-                    >
-                      {managingSub.status === 'Paused' ? (
-                        <>
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>Resume</span>
-                        </>
-                      ) : (
-                        <>
-                          <Pause className="w-3.5 h-3.5" />
-                          <span>Pause</span>
-                        </>
-                      )}
-                    </button>
+                  </div>
+
+                  {/* Meals Per Day Updation */}
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
+                      Meals Included Per Day
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: '1', label: '1 Meal Daily', sub: 'Breakfast or Lunch or Dinner' },
+                        { id: '2', label: '2 Meals Daily', sub: 'Two balanced meals' },
+                        { id: '3', label: '3 Meals Daily', sub: 'All 3 daily meals' }
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            setEditMealsPerDay(m.id);
+                            if (m.id === '3') setEditSlot('all');
+                            else if (m.id === '2' && editSlot === 'all') setEditSlot('breakfast-lunch');
+                            else if (m.id === '1' && (editSlot === 'all' || editSlot.includes('-'))) setEditSlot('breakfast');
+                          }}
+                          className={`p-3 rounded-2xl border text-center transition-all cursor-pointer ${
+                            editMealsPerDay === m.id
+                              ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold shadow-xs ring-2 ring-emerald-500/20'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-medium'
+                          }`}
+                        >
+                          <span className="block text-sm font-bold">{m.label}</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">{m.sub}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Delivery Time Window (Slot) Selection */}
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
+                      Delivery Window
+                    </label>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Select which meal delivery timeframe you would like your food dispatched in:
+                    </p>
+
+                    {editMealsPerDay === '1' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {[
+                          { id: 'breakfast', name: 'Breakfast', time: '07:00 - 08:30 AM', icon: '🌅' },
+                          { id: 'lunch', name: 'Lunch', time: '12:00 - 01:30 PM', icon: '☀️' },
+                          { id: 'dinner', name: 'Dinner', time: '07:00 - 08:30 PM', icon: '🌙' }
+                        ].map((s) => (
+                          <div
+                            key={s.id}
+                            onClick={() => setEditSlot(s.id)}
+                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-center ${
+                              editSlot === s.id
+                                ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-xs ring-2 ring-emerald-500/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span className="text-lg block mb-1">{s.icon}</span>
+                            <span className="text-xs font-bold block">{s.name}</span>
+                            <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">{s.time}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {editMealsPerDay === '2' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        {[
+                          { id: 'breakfast-lunch', name: 'Breakfast & Lunch', time: '07:00 AM & 12:00 PM', icon: '🌅+☀️' },
+                          { id: 'lunch-dinner', name: 'Lunch & Dinner', time: '12:00 PM & 07:00 PM', icon: '☀️+🌙' },
+                          { id: 'breakfast-dinner', name: 'Breakfast & Dinner', time: '07:00 AM & 07:00 PM', icon: '🌅+🌙' }
+                        ].map((s) => (
+                          <div
+                            key={s.id}
+                            onClick={() => setEditSlot(s.id)}
+                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-center ${
+                              editSlot === s.id
+                                ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-xs ring-2 ring-emerald-500/20'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span className="text-base block mb-1">{s.icon}</span>
+                            <span className="text-xs font-bold block">{s.name}</span>
+                            <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">{s.time}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {editMealsPerDay === '3' && (
+                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
+                        <span className="text-xl block mb-1">🌅 ☀️ 🌙</span>
+                        <span className="text-xs font-bold text-emerald-950 block">All 3 Daily Meals</span>
+                        <p className="text-[11px] text-emerald-700 mt-1 font-medium">
+                          Breakfast (07:00 - 08:30 AM) &bull; Lunch (12:00 - 01:30 PM) &bull; Dinner (07:00 - 08:30 PM)
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Cancel Subscription Section */}
-              {managingSub.status !== 'Cancelled' ? (
-                <div className="pt-2 border-t border-slate-100">
-                  {!isCancellingSub ? (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-xs font-bold text-slate-700">Cancel Subscription</h4>
-                        <p className="text-[11px] text-slate-400">Permanently stop future deliveries for this plan</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsCancellingSub(true)}
-                        className="px-3.5 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors border border-rose-200 cursor-pointer"
-                      >
-                        Cancel Plan
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 animate-in fade-in">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                        <div>
-                          <h4 className="text-xs font-bold text-rose-900">Are you sure you want to cancel?</h4>
-                          <p className="text-xs text-rose-700 mt-1 leading-relaxed">
-                            Cancelling will permanently stop daily meal preparation and deliveries for this plan.
-                          </p>
-                          <div className="flex gap-2 mt-3">
+              {manageTab === 'address' && (
+                <div className="space-y-5 animate-in fade-in">
+                  <div>
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
+                      Delivery Address
+                    </label>
+                    <p className="text-xs text-slate-500 mb-3">Update where your meals should be delivered every day:</p>
+
+                    {/* Saved addresses shortcut */}
+                    {addresses.length > 0 && (
+                      <div className="mb-4">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                          Select from Saved Addresses:
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          {addresses.map((a: any) => (
                             <button
+                              key={a.id}
                               type="button"
-                              onClick={() => handleCancelSubscription(managingSub.id)}
-                              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                              onClick={() => setEditAddress(a.address)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                                editAddress.trim().toLowerCase() === a.address.trim().toLowerCase()
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
                             >
-                              Yes, Cancel Subscription
+                              📍 {a.title}: {a.address.slice(0, 25)}...
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => setIsCancellingSub(false)}
-                              className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors cursor-pointer"
-                            >
-                              Keep Plan
-                            </button>
-                          </div>
+                          ))}
                         </div>
+                      </div>
+                    )}
+
+                    <textarea
+                      rows={3}
+                      value={editAddress}
+                      onChange={(e) => setEditAddress(e.target.value)}
+                      placeholder="Enter flat/door no, building, street, landmark, city, and pincode..."
+                      className="w-full p-3.5 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm bg-slate-50 focus:bg-white leading-relaxed"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {manageTab === 'dietary' && (
+                <div className="space-y-6 animate-in fade-in">
+                  {/* Food Allergies */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-black uppercase tracking-wider text-slate-700 block">
+                        Food Allergies
+                      </label>
+                      <span className="text-[11px] text-slate-400">Tap to add / remove</span>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-3">
+                      Our kitchen will strictly exclude meals prepared with these ingredients:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {commonIngredients.map(item => {
+                        const isSelected = editAllergies.includes(item);
+                        return (
+                          <button
+                            key={`edit-allergy-${item}`}
+                            type="button"
+                            onClick={() => {
+                              setEditAllergies(prev => 
+                                prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]
+                              );
+                            }}
+                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer ${
+                              isSelected 
+                                ? 'bg-red-50 text-red-600 border-red-300 shadow-xs ring-1 ring-red-400' 
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            {isSelected ? '✕ ' : '+ '}{item}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Special Preferences */}
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-black uppercase tracking-wider text-slate-700 block">
+                        Special Preferences
+                      </label>
+                      <span className="text-[11px] text-slate-400">Dietary goals</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {['High Protein', 'Low Carb', 'Low Sodium', 'Less Spicy', 'Keto-friendly', 'Sugar-Free', 'Halal', 'No Pork', 'No Beef'].map(pref => {
+                        const isSelected = editPreferences.includes(pref);
+                        return (
+                          <button
+                            key={`edit-pref-${pref}`}
+                            type="button"
+                            onClick={() => {
+                              setEditPreferences(prev => 
+                                prev.includes(pref) ? prev.filter(i => i !== pref) : [...prev, pref]
+                              );
+                            }}
+                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer ${
+                              isSelected 
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-xs ring-1 ring-emerald-400' 
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            {isSelected ? '✓ ' : '+ '}{pref}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {manageTab === 'actions' && (
+                <div className="space-y-6 animate-in fade-in">
+                  {/* Pause / Resume action inside modal */}
+                  {managingSub.status !== 'Cancelled' && (
+                    <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">
+                            {managingSub.status === 'Paused' ? 'Resume Meal Deliveries' : 'Pause Meal Deliveries'}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {managingSub.status === 'Paused' 
+                              ? 'Restart your scheduled meal deliveries immediately.' 
+                              : 'Going out of town? Temporarily hold deliveries without losing paid days.'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePause(managingSub)}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
+                            managingSub.status === 'Paused'
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                          }`}
+                        >
+                          {managingSub.status === 'Paused' ? (
+                            <>
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>Resume Deliveries</span>
+                            </>
+                          ) : (
+                            <>
+                              <Pause className="w-3.5 h-3.5" />
+                              <span>Pause Deliveries</span>
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-center">
-                  <p className="text-xs font-bold text-slate-600">This subscription is cancelled.</p>
-                  <Link
-                    to="/subscribe"
-                    onClick={() => setManagingSub(null)}
-                    className="inline-block mt-2 text-xs font-bold text-emerald-700 hover:underline"
-                  >
-                    + Choose a new meal plan
-                  </Link>
+
+                  {/* Cancel Subscription Section */}
+                  {managingSub.status !== 'Cancelled' ? (
+                    <div className="p-4 rounded-2xl border border-rose-100 bg-rose-50/50">
+                      {!isCancellingSub ? (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-bold text-rose-900">Cancel Subscription</h4>
+                            <p className="text-xs text-rose-600/80 mt-0.5">Permanently stop future deliveries for this plan</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsCancellingSub(true)}
+                            className="px-4 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-100 rounded-xl transition-colors border border-rose-300 bg-white cursor-pointer shrink-0"
+                          >
+                            Cancel Plan
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                            <div>
+                              <h4 className="text-xs font-bold text-rose-900">Are you sure you want to cancel?</h4>
+                              <p className="text-xs text-rose-700 mt-1 leading-relaxed">
+                                Cancelling will permanently stop daily meal preparation and deliveries for this plan.
+                              </p>
+                              <div className="flex gap-2 mt-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelSubscription(managingSub.id)}
+                                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                                >
+                                  Yes, Cancel Subscription
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsCancellingSub(false)}
+                                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                                >
+                                  Keep Plan
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-center">
+                      <p className="text-xs font-bold text-slate-600">This subscription is cancelled.</p>
+                      <Link
+                        to="/subscribe"
+                        onClick={() => setManagingSub(null)}
+                        className="inline-block mt-2 text-xs font-bold text-emerald-700 hover:underline"
+                      >
+                        + Choose a new meal plan
+                      </Link>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+            {/* Footer with Save Changes */}
+            <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
               <button
                 type="button"
                 onClick={() => { setManagingSub(null); setIsCancellingSub(false); }}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                className="px-4 py-2.5 text-slate-600 hover:text-slate-800 text-xs font-bold transition-colors cursor-pointer"
               >
                 Close
+              </button>
+
+              <button
+                type="button"
+                disabled={isSavingPlan || managingSub.status === 'Cancelled'}
+                onClick={handleSavePlanChanges}
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSavingPlan ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Save Changes</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
