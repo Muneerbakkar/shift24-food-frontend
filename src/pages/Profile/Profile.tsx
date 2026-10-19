@@ -194,7 +194,6 @@ export function ProfilePage() {
   const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(true);
   const [managingSub, setManagingSub] = useState<any | null>(null);
-  const [isCancellingSub, setIsCancellingSub] = useState(false);
 
   const handleTogglePause = async (sub: any) => {
     const isPaused = sub.status === 'Paused';
@@ -231,34 +230,8 @@ export function ProfilePage() {
     }
   };
 
-  const handleCancelSubscription = async (subId: string) => {
-    try {
-      const { updateBackendSubscriptionStatus } = await import('../../services/api');
-      await updateBackendSubscriptionStatus(subId, 'Cancelled');
-
-      setSubscriptionsList(prev => prev.map(s => s.id === subId ? { ...s, status: 'Cancelled' } : s));
-
-      const stored = localStorage.getItem('activeSubscription');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          if (parsed.id === subId || parsed.subId === subId || subId === 'sub_active') {
-            parsed.status = 'Cancelled';
-            localStorage.setItem('activeSubscription', JSON.stringify(parsed));
-          }
-        } catch (e) {}
-      }
-
-      toast.success('Subscription cancelled successfully.');
-      setManagingSub(null);
-      setIsCancellingSub(false);
-    } catch (err: any) {
-      toast.error('Failed to cancel subscription');
-    }
-  };
-
   // Manage Plan Edit States
-  const [manageTab, setManageTab] = useState<'schedule' | 'address' | 'dietary' | 'actions'>('schedule');
+  const [manageTab, setManageTab] = useState<'schedule' | 'address' | 'dietary'>('schedule');
   const [editDuration, setEditDuration] = useState('26 Days');
   const [editMealsPerDay, setEditMealsPerDay] = useState('1');
   const [editSlot, setEditSlot] = useState('breakfast');
@@ -269,7 +242,6 @@ export function ProfilePage() {
 
   const openManagePlan = (sub: any) => {
     setManagingSub(sub);
-    setIsCancellingSub(false);
     setManageTab('schedule');
 
     setEditDuration(sub.duration || '26 Days');
@@ -1224,7 +1196,7 @@ export function ProfilePage() {
               </div>
               <button
                 type="button"
-                onClick={() => { setManagingSub(null); setIsCancellingSub(false); }}
+                onClick={() => setManagingSub(null)}
                 className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -1253,13 +1225,6 @@ export function ProfilePage() {
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'dietary' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
               >
                 Dietary & Allergies
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setManageTab('actions')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'actions' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
-              >
-                Pause / Cancel
               </button>
             </div>
 
@@ -1513,116 +1478,13 @@ export function ProfilePage() {
                   </div>
                 </div>
               )}
-
-              {manageTab === 'actions' && (
-                <div className="space-y-6 animate-in fade-in">
-                  {/* Pause / Resume action inside modal */}
-                  {managingSub.status !== 'Cancelled' && (
-                    <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">
-                            {managingSub.status === 'Paused' ? 'Resume Meal Deliveries' : 'Pause Meal Deliveries'}
-                          </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {managingSub.status === 'Paused' 
-                              ? 'Restart your scheduled meal deliveries immediately.' 
-                              : 'Going out of town? Temporarily hold deliveries without losing paid days.'}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleTogglePause(managingSub)}
-                          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 shrink-0 cursor-pointer ${
-                            managingSub.status === 'Paused'
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                              : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
-                          }`}
-                        >
-                          {managingSub.status === 'Paused' ? (
-                            <>
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>Resume Deliveries</span>
-                            </>
-                          ) : (
-                            <>
-                              <Pause className="w-3.5 h-3.5" />
-                              <span>Pause Deliveries</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Cancel Subscription Section */}
-                  {managingSub.status !== 'Cancelled' ? (
-                    <div className="p-4 rounded-2xl border border-rose-100 bg-rose-50/50">
-                      {!isCancellingSub ? (
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div>
-                            <h4 className="text-sm font-bold text-rose-900">Cancel Subscription</h4>
-                            <p className="text-xs text-rose-600/80 mt-0.5">Permanently stop future deliveries for this plan</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setIsCancellingSub(true)}
-                            className="px-4 py-2 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-100 rounded-xl transition-colors border border-rose-300 bg-white cursor-pointer shrink-0"
-                          >
-                            Cancel Plan
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
-                          <div className="flex items-start gap-3">
-                            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                            <div>
-                              <h4 className="text-xs font-bold text-rose-900">Are you sure you want to cancel?</h4>
-                              <p className="text-xs text-rose-700 mt-1 leading-relaxed">
-                                Cancelling will permanently stop daily meal preparation and deliveries for this plan.
-                              </p>
-                              <div className="flex gap-2 mt-3">
-                                <button
-                                  type="button"
-                                  onClick={() => handleCancelSubscription(managingSub.id)}
-                                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
-                                >
-                                  Yes, Cancel Subscription
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setIsCancellingSub(false)}
-                                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors cursor-pointer"
-                                >
-                                  Keep Plan
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-center">
-                      <p className="text-xs font-bold text-slate-600">This subscription is cancelled.</p>
-                      <Link
-                        to="/subscribe"
-                        onClick={() => setManagingSub(null)}
-                        className="inline-block mt-2 text-xs font-bold text-emerald-700 hover:underline"
-                      >
-                        + Choose a new meal plan
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* Footer with Save Changes */}
             <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
               <button
                 type="button"
-                onClick={() => { setManagingSub(null); setIsCancellingSub(false); }}
+                onClick={() => setManagingSub(null)}
                 className="px-4 py-2.5 text-slate-600 hover:text-slate-800 text-xs font-bold transition-colors cursor-pointer"
               >
                 Close
