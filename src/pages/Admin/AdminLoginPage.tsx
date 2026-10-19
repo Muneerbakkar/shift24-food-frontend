@@ -5,13 +5,10 @@ import toast from 'react-hot-toast';
 import { apiAdminLogin, apiAdminRegister } from '../../services/api';
 
 export function AdminLoginPage() {
-  const defaultAdminEmail = (import.meta as any).env?.VITE_DEFAULT_ADMIN_EMAIL || 'admin@shift24.com';
-  const defaultAdminPassword = (import.meta as any).env?.VITE_DEFAULT_ADMIN_PASSWORD || 'admin123';
-
   const [isAdminSignUp, setIsAdminSignUp] = useState(false);
   const [name, setName] = useState('');
-  const [email, setEmail] = useState(defaultAdminEmail);
-  const [password, setPassword] = useState(defaultAdminPassword);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [adminSecretCode, setAdminSecretCode] = useState('');
   const [showSecretCode, setShowSecretCode] = useState(false);

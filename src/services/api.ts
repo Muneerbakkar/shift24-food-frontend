@@ -26,40 +26,15 @@ function getAuthHeaders(customHeaders: Record<string, string> = {}) {
   return headers;
 }
 
-let isAutoRenewing = false;
-
-// Auto-recovering fetch wrapper for authenticated endpoints
+// Authenticated fetch wrapper
 async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const headers = getAuthHeaders((options.headers as Record<string, string>) || {});
-  let res = await fetch(url, { ...options, headers, credentials: 'include' });
+  const res = await fetch(url, { ...options, headers, credentials: 'include' });
 
-  // If 401 Unauthorized in an admin view, auto-renew with admin credentials and retry once
-  if (res.status === 401 && typeof window !== 'undefined' && window.location.pathname.startsWith('/admin') && !isAutoRenewing) {
-    isAutoRenewing = true;
-    try {
-      const defaultEmail = (import.meta as any).env?.VITE_DEFAULT_ADMIN_EMAIL || 'admin@shift24.com';
-      const defaultPassword = (import.meta as any).env?.VITE_DEFAULT_ADMIN_PASSWORD || 'admin123';
-      const renewRes = await fetch(`${API_BASE}/auth/admin-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: defaultEmail, password: defaultPassword })
-      });
-      const renewData = await renewRes.json();
-      if (renewData.success && renewData.token) {
-        localStorage.setItem('adminToken', renewData.token);
-        localStorage.setItem('isAdminLoggedIn', 'true');
-        if (renewData.user) {
-          localStorage.setItem('adminUser', JSON.stringify(renewData.user));
-        }
-        // Retry original request with newly acquired token
-        const newHeaders = getAuthHeaders((options.headers as Record<string, string>) || {});
-        res = await fetch(url, { ...options, headers: newHeaders, credentials: 'include' });
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      isAutoRenewing = false;
-    }
+  // If 401 Unauthorized in an admin view, clear expired admin session
+  if (res.status === 401 && typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('isAdminLoggedIn');
   }
 
   return res;

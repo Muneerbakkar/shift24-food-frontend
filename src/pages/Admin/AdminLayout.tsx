@@ -50,56 +50,30 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         // ignore JSON parse err
       }
 
-      // If token is missing, null, or invalid, auto-refresh with default admin
+      // If token is missing, redirect to admin login
       if (!token || token === 'null' || token === 'undefined') {
-        try {
-          const defaultAdminEmail = (import.meta as any).env?.VITE_DEFAULT_ADMIN_EMAIL || 'admin@shift24.com';
-          const defaultAdminPassword = (import.meta as any).env?.VITE_DEFAULT_ADMIN_PASSWORD || 'admin123';
-          const loginRes = await apiAdminLogin(defaultAdminEmail, defaultAdminPassword);
-          if (loginRes.success && loginRes.token) {
-            token = loginRes.token;
-            localStorage.setItem('adminToken', loginRes.token);
-            localStorage.setItem('isAdminLoggedIn', 'true');
-            if (loginRes.user) {
-              setAdminUser(loginRes.user);
-              localStorage.setItem('adminUser', JSON.stringify(loginRes.user));
-            }
-          }
-        } catch (e) {
-          // offline fallback
-        }
+        localStorage.removeItem('isAdminLoggedIn');
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUser');
+        navigate('/admin/login', { replace: true });
+        return;
       }
 
       // Revalidate with backend /auth/me
-      if (token) {
-        try {
-          const res = await apiGetMe(token);
-          if (res.success && res.user) {
-            setAdminUser(res.user);
-            localStorage.setItem('adminUser', JSON.stringify(res.user));
-          } else if (res && !res.success && (res.message?.includes('token') || res.message?.includes('session') || res.message?.includes('Authentication') || res.code === 'TOKEN_EXPIRED')) {
-            // Token is invalid/expired - auto-refresh with default credentials
-            const defaultAdminEmail = (import.meta as any).env?.VITE_DEFAULT_ADMIN_EMAIL || 'admin@shift24.com';
-            const defaultAdminPassword = (import.meta as any).env?.VITE_DEFAULT_ADMIN_PASSWORD || 'admin123';
-            const loginRes = await apiAdminLogin(defaultAdminEmail, defaultAdminPassword);
-            if (loginRes.success && loginRes.token) {
-              localStorage.setItem('adminToken', loginRes.token);
-              localStorage.setItem('isAdminLoggedIn', 'true');
-              if (loginRes.user) {
-                setAdminUser(loginRes.user);
-                localStorage.setItem('adminUser', JSON.stringify(loginRes.user));
-              }
-            } else {
-              localStorage.removeItem('isAdminLoggedIn');
-              localStorage.removeItem('adminToken');
-              localStorage.removeItem('adminUser');
-              toast.error('Session expired. Please log in again.');
-              navigate('/admin/login', { replace: true });
-            }
-          }
-        } catch (e) {
-          // offline fallback
+      try {
+        const res = await apiGetMe(token);
+        if (res.success && res.user) {
+          setAdminUser(res.user);
+          localStorage.setItem('adminUser', JSON.stringify(res.user));
+        } else if (res && !res.success && (res.message?.includes('token') || res.message?.includes('session') || res.message?.includes('Authentication') || res.code === 'TOKEN_EXPIRED')) {
+          localStorage.removeItem('isAdminLoggedIn');
+          localStorage.removeItem('adminToken');
+          localStorage.removeItem('adminUser');
+          toast.error('Session expired. Please log in again.');
+          navigate('/admin/login', { replace: true });
         }
+      } catch (e) {
+        // offline fallback
       }
     };
 
