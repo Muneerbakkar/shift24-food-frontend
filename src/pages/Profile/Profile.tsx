@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check } from 'lucide-react';
+import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check, Pause, Play, Clock, X, AlertTriangle } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { commonIngredients } from '../../data/mockData';
 import { jsPDF } from 'jspdf';
 import { toPng } from 'html-to-image';
@@ -192,6 +193,69 @@ export function ProfilePage() {
 
   const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(true);
+  const [managingSub, setManagingSub] = useState<any | null>(null);
+  const [isCancellingSub, setIsCancellingSub] = useState(false);
+
+  const handleTogglePause = async (sub: any) => {
+    const isPaused = sub.status === 'Paused';
+    const newStatus = isPaused ? 'Active' : 'Paused';
+    const actionText = isPaused ? 'resume' : 'pause';
+
+    if (!window.confirm(`Are you sure you want to ${actionText} daily meal deliveries for ${sub.planName}?`)) {
+      return;
+    }
+
+    try {
+      const { updateBackendSubscriptionStatus } = await import('../../services/api');
+      await updateBackendSubscriptionStatus(sub.id, newStatus);
+
+      setSubscriptionsList(prev => prev.map(s => s.id === sub.id ? { ...s, status: newStatus } : s));
+      if (managingSub && managingSub.id === sub.id) {
+        setManagingSub({ ...managingSub, status: newStatus });
+      }
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.id === sub.id || parsed.subId === sub.id || sub.id === 'sub_active') {
+            parsed.status = newStatus;
+            localStorage.setItem('activeSubscription', JSON.stringify(parsed));
+          }
+        } catch (e) {}
+      }
+
+      toast.success(newStatus === 'Paused' ? 'Deliveries paused. Resume anytime!' : 'Deliveries resumed! Your meal routine is active.');
+    } catch (err: any) {
+      toast.error('Failed to update delivery status');
+    }
+  };
+
+  const handleCancelSubscription = async (subId: string) => {
+    try {
+      const { updateBackendSubscriptionStatus } = await import('../../services/api');
+      await updateBackendSubscriptionStatus(subId, 'Cancelled');
+
+      setSubscriptionsList(prev => prev.map(s => s.id === subId ? { ...s, status: 'Cancelled' } : s));
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.id === subId || parsed.subId === subId || subId === 'sub_active') {
+            parsed.status = 'Cancelled';
+            localStorage.setItem('activeSubscription', JSON.stringify(parsed));
+          }
+        } catch (e) {}
+      }
+
+      toast.success('Subscription cancelled successfully.');
+      setManagingSub(null);
+      setIsCancellingSub(false);
+    } catch (err: any) {
+      toast.error('Failed to cancel subscription');
+    }
+  };
 
   // Load subscriptions for logged-in user
   useEffect(() => {
@@ -433,7 +497,13 @@ export function ProfilePage() {
                                   <p className="text-slate-600 text-sm mt-1">Next delivery: {sub.nextDelivery}</p>
                                 </div>
                                 <div className="flex items-center gap-4 self-start md:self-auto">
-                                  <span className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${sub.status === 'Returned' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                  <span className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                    sub.status === 'Paused'
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      : sub.status === 'Cancelled'
+                                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                      : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                  }`}>
                                     {sub.status}
                                   </span>
                                   <ChevronRight className={`w-5 h-5 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
@@ -647,8 +717,45 @@ export function ProfilePage() {
                                   </div>
 
                                   <div className="flex flex-wrap gap-3 mt-8">
-                                    <button className="px-5 py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100 transition-colors">Manage Plan</button>
-                                    <button className="px-5 py-2.5 bg-slate-50 text-slate-600 font-bold rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">Pause Delivery</button>
+                                    <button 
+                                      type="button"
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setManagingSub(sub); 
+                                        setIsCancellingSub(false); 
+                                      }}
+                                      className="px-5 py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100 transition-colors flex items-center gap-2 text-sm shadow-xs"
+                                    >
+                                      <Settings className="w-4 h-4" />
+                                      <span>Manage Plan</span>
+                                    </button>
+
+                                    {sub.status !== 'Cancelled' && (
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          handleTogglePause(sub); 
+                                        }}
+                                        className={`px-5 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm shadow-xs ${
+                                          sub.status === 'Paused'
+                                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                            : 'bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {sub.status === 'Paused' ? (
+                                          <>
+                                            <Play className="w-4 h-4 fill-current" />
+                                            <span>Resume Delivery</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Pause className="w-4 h-4" />
+                                            <span>Pause Delivery</span>
+                                          </>
+                                        )}
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -965,6 +1072,202 @@ export function ProfilePage() {
             <div className="p-4 bg-slate-50 flex gap-3">
               <button onClick={() => setViewingInvoice(null)} className="flex-1 px-4 py-3 bg-slate-200 text-slate-700 font-bold text-sm rounded-xl hover:bg-slate-300 transition-colors">Close</button>
               <button onClick={() => viewingInvoice && handleDownloadInvoice(viewingInvoice)} className="flex-1 px-4 py-3 bg-emerald-600 text-white font-bold text-sm rounded-xl hover:bg-emerald-700 transition-colors">Download Receipt</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Plan Modal */}
+      {managingSub && (
+        <div className="fixed inset-0 bg-slate-900/60 z-[999] flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white max-w-lg w-full rounded-3xl shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-6 bg-slate-900 text-white flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                    managingSub.status === 'Paused'
+                      ? 'bg-amber-400 text-slate-950'
+                      : managingSub.status === 'Cancelled'
+                      ? 'bg-rose-500 text-white'
+                      : 'bg-emerald-400 text-slate-950'
+                  }`}>
+                    {managingSub.status}
+                  </span>
+                  <span className="text-slate-400 text-xs font-semibold">ID: {managingSub.id}</span>
+                </div>
+                <h3 className="text-xl font-black tracking-tight">{managingSub.planName}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setManagingSub(null); setIsCancellingSub(false); }}
+                className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+              {/* Daily Meal Delivery Time Windows */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock className="w-4 h-4 text-emerald-600" />
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                    Daily Meal Delivery Windows
+                  </h4>
+                </div>
+                <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                  Chef-crafted meals are dispatched fresh each day to arrive within these specified meal timeframes:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-2xs">
+                    <span className="text-base block mb-0.5">🌅</span>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase block">Breakfast</span>
+                    <span className="text-xs font-black text-slate-900">07:00 - 08:30 AM</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-2xs">
+                    <span className="text-base block mb-0.5">☀️</span>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase block">Lunch</span>
+                    <span className="text-xs font-black text-slate-900">12:00 - 01:30 PM</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-2xs">
+                    <span className="text-base block mb-0.5">🌙</span>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase block">Dinner</span>
+                    <span className="text-xs font-black text-slate-900">07:00 - 08:30 PM</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Plan Summary */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-400">Subscription Summary</h4>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-slate-400 block font-semibold mb-0.5">Duration</span>
+                    <span className="font-bold text-slate-900">{managingSub.duration}</span>
+                    <span className="text-slate-500 block text-[11px] mt-0.5">{managingSub.startDate} – {managingSub.endDate}</span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-slate-400 block font-semibold mb-0.5">Meals Included</span>
+                    <span className="font-bold text-slate-900">{managingSub.meals}</span>
+                    <span className="text-slate-500 block text-[11px] mt-0.5">Delivered to schedule</span>
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                  <span className="text-slate-400 block font-semibold mb-0.5">Delivery Destination</span>
+                  <span className="font-bold text-slate-800 leading-relaxed block">{managingSub.address}</span>
+                </div>
+              </div>
+
+              {/* Pause / Resume action inside modal */}
+              {managingSub.status !== 'Cancelled' && (
+                <div className="pt-2">
+                  <div className="flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70">
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">
+                        {managingSub.status === 'Paused' ? 'Resume Deliveries' : 'Pause Deliveries'}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {managingSub.status === 'Paused' 
+                          ? 'Resume daily meals starting next scheduled slot' 
+                          : 'Temporarily put deliveries on hold without losing days'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePause(managingSub)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer ${
+                        managingSub.status === 'Paused'
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                      }`}
+                    >
+                      {managingSub.status === 'Paused' ? (
+                        <>
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Resume</span>
+                        </>
+                      ) : (
+                        <>
+                          <Pause className="w-3.5 h-3.5" />
+                          <span>Pause</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Cancel Subscription Section */}
+              {managingSub.status !== 'Cancelled' ? (
+                <div className="pt-2 border-t border-slate-100">
+                  {!isCancellingSub ? (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-700">Cancel Subscription</h4>
+                        <p className="text-[11px] text-slate-400">Permanently stop future deliveries for this plan</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsCancellingSub(true)}
+                        className="px-3.5 py-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl transition-colors border border-rose-200 cursor-pointer"
+                      >
+                        Cancel Plan
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 animate-in fade-in">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="text-xs font-bold text-rose-900">Are you sure you want to cancel?</h4>
+                          <p className="text-xs text-rose-700 mt-1 leading-relaxed">
+                            Cancelling will permanently stop daily meal preparation and deliveries for this plan.
+                          </p>
+                          <div className="flex gap-2 mt-3">
+                            <button
+                              type="button"
+                              onClick={() => handleCancelSubscription(managingSub.id)}
+                              className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                            >
+                              Yes, Cancel Subscription
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsCancellingSub(false)}
+                              className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors cursor-pointer"
+                            >
+                              Keep Plan
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-slate-100 border border-slate-200 text-center">
+                  <p className="text-xs font-bold text-slate-600">This subscription is cancelled.</p>
+                  <Link
+                    to="/subscribe"
+                    onClick={() => setManagingSub(null)}
+                    className="inline-block mt-2 text-xs font-bold text-emerald-700 hover:underline"
+                  >
+                    + Choose a new meal plan
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => { setManagingSub(null); setIsCancellingSub(false); }}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
