@@ -73,33 +73,6 @@ export function AdminLoginPage() {
     }
   };
 
-  const handleDemoLogin = async () => {
-    setEmail(defaultAdminEmail);
-    setPassword(defaultAdminPassword);
-    setIsAdminSignUp(false);
-
-    try {
-      setLoading(true);
-      const res = await apiAdminLogin(defaultAdminEmail, defaultAdminPassword);
-      if (res.success) {
-        localStorage.setItem('adminToken', res.token);
-        localStorage.setItem('isAdminLoggedIn', 'true');
-        localStorage.setItem('adminUser', JSON.stringify(res.user));
-        toast.success('Logged in with Super Admin credentials');
-        navigate('/admin');
-      } else {
-        toast.error(res.message || 'Could not log in with demo admin');
-      }
-    } catch (e: any) {
-      // Fallback
-      localStorage.setItem('isAdminLoggedIn', 'true');
-      localStorage.setItem('adminUser', JSON.stringify({ email: defaultAdminEmail, role: 'admin', name: 'Shift24 Super Admin' }));
-      toast.success('Logged in with Demo Admin credentials');
-      navigate('/admin');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-800">
@@ -127,25 +100,6 @@ export function AdminLoginPage() {
             </p>
           </div>
 
-          {/* Quick Demo Login Banner */}
-          <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200/80">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider">Demo Access</span>
-              <span className="text-[10px] font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-full">Ready</span>
-            </div>
-            <p className="text-xs text-emerald-800 mb-3">
-              One-click instant access pre-configured with full administrative permissions:
-            </p>
-            <button
-              type="button"
-              disabled={loading}
-              onClick={handleDemoLogin}
-              className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 hover:scale-[1.01] disabled:opacity-50"
-            >
-              <span>Instant Demo Admin Login</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
 
           {/* Tab Switcher for Admin Sign In vs Admin Sign Up */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-2xl mb-6">
