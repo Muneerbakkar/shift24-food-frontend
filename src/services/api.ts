@@ -1,6 +1,6 @@
 // Shift24 API Client Service with JWT & Session Support
 
-const API_BASE = '/api';
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL?.replace(/\/$/, '') || '/api';
 
 function getAuthHeaders(customHeaders: Record<string, string> = {}) {
   const headers: Record<string, string> = {
