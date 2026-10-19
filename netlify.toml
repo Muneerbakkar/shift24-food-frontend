@@ -2,8 +2,11 @@
   command = "npm run build"
   publish = "dist"
 
-[secrets_scanning]
-  enabled = false
+# VITE_* values are intentionally embedded in the client bundle (public by design),
+# so exclude them from Netlify's secrets scanning. Restrict the Google Maps key
+# by HTTP referrer in Google Cloud Console.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "VITE_API_BASE_URL,VITE_GOOGLE_MAPS_API_KEY"
 
 # SPA Fallback for client-side routing (React Router)
 [[redirects]]
