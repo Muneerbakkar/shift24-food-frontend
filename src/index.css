@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+  width: 100%;
+}
+
+/* Print Styles */
+@media print {
+  @page {
+    margin: 6mm;
+    size: auto;
+  }
+
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Force exact background colors and borders in print */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide navigation, sidebar, and non-printable elements */
+  aside,
+  header,
+  .no-print,
+  .print-hidden,
+  .modal-screen-only {
+    display: none !important;
+  }
+}
