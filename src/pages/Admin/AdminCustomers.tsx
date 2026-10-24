@@ -27,59 +27,72 @@ import {
   AdminCustomer 
 } from './adminData';
 import { fetchCustomers } from '../../services/api';
+import { geocodeWithGoogleOrOSM } from '../../utils/googleMaps';
 
 interface CustomerLocationMapProps {
   address: string;
   coordinates?: { lat: number; lng: number };
+  latitude?: number;
+  longitude?: number;
   customerName: string;
 }
 
-function CustomerLocationMap({ address, coordinates, customerName }: CustomerLocationMapProps) {
+const isValidCoords = (c: any): c is { lat: number; lng: number } => 
+  Boolean(c && typeof c.lat === 'number' && typeof c.lng === 'number' && !isNaN(c.lat) && !isNaN(c.lng));
+
+function CustomerLocationMap({ address, coordinates, latitude, longitude, customerName }: CustomerLocationMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
 
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(coordinates || null);
+  const directLat = typeof latitude === 'number' && !isNaN(latitude) ? latitude : coordinates?.lat;
+  const directLng = typeof longitude === 'number' && !isNaN(longitude) ? longitude : coordinates?.lng;
+  const directCoords = (typeof directLat === 'number' && typeof directLng === 'number' && !isNaN(directLat) && !isNaN(directLng))
+    ? { lat: directLat, lng: directLng }
+    : null;
+
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    directCoords || (isValidCoords(coordinates) ? coordinates : null)
+  );
   const [isGeocoding, setIsGeocoding] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     let isCancelled = false;
 
-    if (coordinates && coordinates.lat && coordinates.lng) {
+    if (directCoords) {
+      setCoords(directCoords);
+      return;
+    }
+
+    if (isValidCoords(coordinates)) {
       setCoords(coordinates);
       return;
     }
 
     if (!address || address === 'Address not provided') {
-      setCoords({ lat: 9.9312, lng: 76.2673 });
+      setCoords({ lat: 10.0167, lng: 76.3692 });
       return;
     }
 
     const geocodeAddress = async () => {
       setIsGeocoding(true);
       try {
-        const query = encodeURIComponent(address);
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`, {
-          headers: { 'Accept-Language': 'en' }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (!isCancelled && Array.isArray(data) && data.length > 0) {
-            setCoords({
-              lat: parseFloat(data[0].lat),
-              lng: parseFloat(data[0].lon)
-            });
-            setIsGeocoding(false);
-            return;
+        const geo = await geocodeWithGoogleOrOSM(address);
+        if (!isCancelled) {
+          if (geo && isValidCoords(geo)) {
+            setCoords(geo);
+          } else {
+            setCoords({ lat: 10.0167, lng: 76.3692 });
           }
+          setIsGeocoding(false);
         }
       } catch (err) {
         console.warn('Geocoding notice:', err);
-      }
-      if (!isCancelled) {
-        setCoords({ lat: 9.9312, lng: 76.2673 });
-        setIsGeocoding(false);
+        if (!isCancelled) {
+          setCoords({ lat: 10.0167, lng: 76.3692 });
+          setIsGeocoding(false);
+        }
       }
     };
 
@@ -91,21 +104,25 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
   }, [address, coordinates]);
 
   useEffect(() => {
-    if (!mapContainerRef.current || !coords) return;
+    if (!mapContainerRef.current || !isValidCoords(coords)) return;
 
+    // Google Maps pin matching user's screenshot
     const customPin = L.divIcon({
-      className: 'shift24-customer-pin',
+      className: 'google-customer-pin',
       html: `
-        <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
-          <div style="position: absolute; width: 36px; height: 36px; border-radius: 50%; background: rgba(16, 185, 129, 0.35); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-          <div style="position: relative; width: 28px; height: 28px; border-radius: 50%; background: #059669; border: 2.5px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        <div style="position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+          <div style="position: absolute; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 135, 90, 0.25); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+          <div style="position: relative; width: 32px; height: 32px; border-radius: 50%; background: #00875a; border: 2.5px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; color: white;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+              <circle cx="12" cy="10" r="3"/>
+            </svg>
           </div>
         </div>
       `,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
-      popupAnchor: [0, -18]
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -20]
     });
 
     if (!mapInstanceRef.current) {
@@ -116,14 +133,16 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
         scrollWheelZoom: false
       });
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap'
+      // Google Maps Vector Tiles
+      L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        subdomains: ['0', '1', '2', '3'],
+        maxZoom: 20,
+        attribution: '&copy; Google Maps'
       }).addTo(map);
 
       const marker = L.marker([coords.lat, coords.lng], { icon: customPin }).addTo(map);
       marker.bindPopup(`
-        <div style="font-family: inherit; font-size: 12px; line-height: 1.4;">
+        <div style="font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.4;">
           <b style="color: #0f172a; font-size: 13px;">${customerName}</b><br/>
           <span style="color: #64748b;">${address}</span>
         </div>
@@ -140,7 +159,7 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
       if (markerRef.current) {
         markerRef.current.setLatLng([coords.lat, coords.lng]);
         markerRef.current.setPopupContent(`
-          <div style="font-family: inherit; font-size: 12px; line-height: 1.4;">
+          <div style="font-family: system-ui, sans-serif; font-size: 12px; line-height: 1.4;">
             <b style="color: #0f172a; font-size: 13px;">${customerName}</b><br/>
             <span style="color: #64748b;">${address}</span>
           </div>
@@ -168,9 +187,9 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const mapsQuery = coords 
+  const mapsQuery = isValidCoords(coords)
     ? `${coords.lat},${coords.lng}`
-    : encodeURIComponent(address);
+    : encodeURIComponent(address || '');
 
   const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${mapsQuery}`;
@@ -182,11 +201,11 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
           <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
             <MapPin className="w-3.5 h-3.5" />
           </div>
-          <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
-            Delivery Location & GPS Map
+          <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+            <span>Delivery Location & Google Map</span>
           </span>
         </div>
-        {coords && (
+        {isValidCoords(coords) && (
           <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md font-bold">
             {coords.lat.toFixed(4)}°N, {coords.lng.toFixed(4)}°E
           </span>
@@ -201,7 +220,7 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
         <button
           type="button"
           onClick={handleCopy}
-          className="shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+          className="shrink-0 p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
           title="Copy address"
         >
           {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
@@ -211,9 +230,9 @@ function CustomerLocationMap({ address, coordinates, customerName }: CustomerLoc
       {/* Map View */}
       <div className="relative h-48 w-full rounded-xl overflow-hidden border border-slate-200 shadow-inner bg-slate-100">
         {isGeocoding && (
-          <div className="absolute inset-0 z-10 bg-slate-900/10 backdrop-blur-xs flex items-center justify-center gap-2 text-xs font-semibold text-slate-700">
+          <div className="absolute inset-0 z-10 bg-white/70 backdrop-blur-xs flex items-center justify-center gap-2 text-xs font-semibold text-slate-700">
             <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-            Pinpointing location...
+            Pinpointing location on Google Maps...
           </div>
         )}
         <div ref={mapContainerRef} className="h-full w-full z-0" />
@@ -499,6 +518,8 @@ export function AdminCustomers() {
               <CustomerLocationMap 
                 address={selectedCust.address}
                 coordinates={selectedCust.coordinates}
+                latitude={selectedCust.latitude}
+                longitude={selectedCust.longitude}
                 customerName={selectedCust.name}
               />
 

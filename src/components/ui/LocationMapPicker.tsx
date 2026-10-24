@@ -38,6 +38,7 @@ const GOOGLE_MAPS_API_KEY = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY |
 
 // Dynamically load the Google Maps JS SDK with the Places library (idempotent)
 let gMapsLoadPromise: Promise<void> | null = null;
+let googlePlacesFailed = false;
 function loadGoogleMapsSDK(): Promise<void> {
   if (gMapsLoadPromise) return gMapsLoadPromise;
   if (typeof window !== 'undefined' && (window as any).google?.maps?.places) {
@@ -262,7 +263,101 @@ export const LocationMapPicker: React.FC<LocationMapPickerProps> = ({
     }, 200);
   };
 
-  // Google Places Autocomplete — real Google Maps-quality suggestions
+  // Fast OpenStreetMap & Photon Fallback Search (works offline / with no Google billing)
+  const searchPlacesOSM = async (trimmed: string) => {
+    setIsSearching(true);
+    setShowResultsDropdown(true);
+
+    try {
+      // 1. Try Photon (fast, proximity-aware geocoder built on OpenStreetMap)
+      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=7&lat=${currentCoords.lat}&lon=${currentCoords.lng}`;
+      const res = await fetch(photonUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.features) && data.features.length > 0) {
+          const results: SearchResult[] = data.features.map((feat: any, idx: number) => {
+            const p = feat.properties || {};
+            const [lon, lat] = feat.geometry?.coordinates || [0, 0];
+            const mainName = p.name || p.street || trimmed;
+            const subtitleParts = [p.street, p.district || p.suburb || p.locality, p.city || p.county, p.state, p.postcode].filter(Boolean);
+            const uniqueSubtitle = Array.from(new Set(subtitleParts)).filter(part => part !== mainName).join(', ');
+            const dist = calculateDistanceKm(currentCoords.lat, currentCoords.lng, lat, lon);
+
+            return {
+              id: `photon-${p.osm_id || idx}`,
+              lat,
+              lng: lon,
+              name: mainName,
+              displayName: uniqueSubtitle || p.country || 'Kerala, India',
+              distanceKm: dist,
+              distanceLabel: formatDistance(dist),
+              street: p.street || (p.osm_key === 'highway' ? mainName : undefined),
+              area: p.district || p.suburb || p.locality,
+              city: p.city || p.county || 'Kochi',
+              state: p.state || 'Kerala',
+              pincode: p.postcode,
+              type: p.osm_value || p.type || 'place'
+            };
+          });
+
+          setSearchResults(results);
+          setShowResultsDropdown(true);
+          setIsSearching(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Photon search error, trying Nominatim fallback:', err);
+    }
+
+    try {
+      // 2. Fallback to Nominatim OpenStreetMap search
+      const nomUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&addressdetails=1&limit=6&countrycodes=in`;
+      const res = await fetch(nomUrl, {
+        headers: { 'Accept-Language': 'en' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const results: SearchResult[] = data.map((item: any, idx: number) => {
+            const lat = parseFloat(item.lat);
+            const lon = parseFloat(item.lon);
+            const addr = item.address || {};
+            const mainName = item.name || item.display_name.split(',')[0];
+            const dist = calculateDistanceKm(currentCoords.lat, currentCoords.lng, lat, lon);
+
+            return {
+              id: `nom-${item.place_id || idx}`,
+              lat,
+              lng: lon,
+              name: mainName,
+              displayName: item.display_name,
+              distanceKm: dist,
+              distanceLabel: formatDistance(dist),
+              street: addr.road || addr.street,
+              area: addr.suburb || addr.neighbourhood || addr.subdistrict,
+              city: addr.city || addr.town || addr.village || addr.county || 'Kochi',
+              state: addr.state || 'Kerala',
+              pincode: addr.postcode,
+              type: item.type || 'place'
+            };
+          });
+
+          setSearchResults(results);
+          setShowResultsDropdown(true);
+          setIsSearching(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Nominatim fallback search error:', err);
+    }
+
+    setSearchResults([]);
+    setIsSearching(false);
+  };
+
+  // Dual-Layer Search: Google Places Autocomplete with instant OpenStreetMap/Photon fallback
   const performNearestSearch = async (query: string) => {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -272,11 +367,23 @@ export const LocationMapPicker: React.FC<LocationMapPickerProps> = ({
     }
 
     setIsSearching(true);
+    setShowResultsDropdown(true);
+
+    if (googlePlacesFailed) {
+      searchPlacesOSM(trimmed);
+      return;
+    }
+
     try {
       await loadGoogleMapsSDK();
       const google = (window as any).google;
-      const service = new google.maps.places.AutocompleteService();
+      if (!google?.maps?.places?.AutocompleteService) {
+        googlePlacesFailed = true;
+        searchPlacesOSM(trimmed);
+        return;
+      }
 
+      const service = new google.maps.places.AutocompleteService();
       const sessionToken = new google.maps.places.AutocompleteSessionToken();
 
       const request = {
@@ -292,8 +399,10 @@ export const LocationMapPicker: React.FC<LocationMapPickerProps> = ({
 
       service.getPlacePredictions(request, (predictions: any[], status: string) => {
         if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions?.length) {
-          setIsSearching(false);
-          setSearchResults([]);
+          if (status === google.maps.places.PlacesServiceStatus.REQUEST_DENIED || status === 'REQUEST_DENIED') {
+            googlePlacesFailed = true;
+          }
+          searchPlacesOSM(trimmed);
           return;
         }
 
@@ -316,8 +425,9 @@ export const LocationMapPicker: React.FC<LocationMapPickerProps> = ({
         setIsSearching(false);
       });
     } catch (err) {
-      console.warn('Google Places search error:', err);
-      setIsSearching(false);
+      console.warn('Google Places search error, falling back to OSM:', err);
+      googlePlacesFailed = true;
+      searchPlacesOSM(trimmed);
     }
   };
 

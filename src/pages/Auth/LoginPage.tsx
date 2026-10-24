@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Mail, Lock, User, Phone, ArrowRight, ShieldCheck, CheckCircle2, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, User, Phone, ArrowRight, ShieldCheck, CheckCircle2, Eye, EyeOff, Truck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiLogin, apiRegister } from '../../services/api';
+import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
 
 export function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -12,6 +13,7 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -212,9 +214,13 @@ export function LoginPage() {
                 Password
               </label>
               {!isSignUp && (
-                <span className="text-[11px] text-emerald-600 font-semibold cursor-pointer hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPasswordModal(true)}
+                  className="text-[11px] text-emerald-600 font-semibold cursor-pointer hover:underline"
+                >
                   Forgot password?
-                </span>
+                </button>
               )}
             </div>
             <div className="relative">
@@ -267,17 +273,30 @@ export function LoginPage() {
           </span>
         </p>
 
-        {/* Link to Admin */}
-        <div className="mt-8 pt-4 border-t border-slate-100 text-center">
+        {/* Links to Driver & Admin */}
+        <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-center gap-3 text-xs">
+          <Link 
+            to="/driver/login" 
+            className="inline-flex items-center gap-1.5 font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 transition-colors"
+          >
+            <Truck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Delivery Partner Login →</span>
+          </Link>
           <Link 
             to="/admin/login" 
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-700 transition-colors"
+            className="inline-flex items-center gap-1.5 font-semibold text-slate-400 hover:text-slate-700 transition-colors px-2 py-1"
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Are you a kitchen or delivery manager? Access Admin Portal</span>
+            <span>Admin Portal</span>
           </Link>
         </div>
       </div>
+
+      <ForgotPasswordModal
+        isOpen={showForgotPasswordModal}
+        onClose={() => setShowForgotPasswordModal(false)}
+        defaultEmail={email}
+      />
     </div>
   );
 }

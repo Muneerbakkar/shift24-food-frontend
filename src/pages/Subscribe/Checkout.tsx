@@ -27,7 +27,8 @@ import {
   Briefcase,
   ChevronDown,
   ChevronUp,
-  Navigation
+  Navigation,
+  Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiGetMe, apiUpdateAddresses, createBackendSubscription } from '../../services/api';
@@ -453,6 +454,81 @@ export function CheckoutDetails() {
     setSetAsDefault(savedAddresses.length === 0);
   };
 
+  const confirmDeleteCheckoutAddress = (id: string, idx: number) => {
+    toast.custom(
+      (t) => (
+        <div
+          className={`${
+            t.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95'
+          } transition-all duration-200 ease-out max-w-sm w-full bg-white shadow-2xl rounded-2xl pointer-events-auto p-4 border border-slate-200 ring-1 ring-black/5 flex flex-col gap-3`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 text-red-600 rounded-xl shrink-0">
+              <Trash2 className="w-5 h-5 text-red-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                Are you sure you want to delete this saved address?
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                This address will be removed from your saved list.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                toast.dismiss(t.id);
+                await executeDeleteCheckoutAddress(id, idx);
+              }}
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm cursor-pointer"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ),
+      { id: `delete-checkout-addr-${id}`, duration: 8000 }
+    );
+  };
+
+  const executeDeleteCheckoutAddress = async (id: string, idx: number) => {
+    const updated = savedAddresses.filter(a => a.id !== id);
+    setSavedAddresses(updated);
+
+    if (currentUser && localStorage.getItem('token')) {
+      try {
+        await apiUpdateAddresses(updated.map(a => ({ title: a.title, address: a.address, isDefault: a.isDefault })));
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          parsed.addresses = updated;
+          localStorage.setItem('user', JSON.stringify(parsed));
+        }
+      } catch (e) {
+        console.warn('Failed to sync address deletion', e);
+      }
+    }
+
+    toast.success('Address removed from saved list');
+
+    if (updated.length === 0) {
+      handleSelectNewAddress();
+    } else if (selectedAddressIndex === idx) {
+      handleSelectAddress(0);
+    } else if (selectedAddressIndex !== null && selectedAddressIndex > idx) {
+      setSelectedAddressIndex(selectedAddressIndex - 1);
+    }
+  };
+
   const toggleSelection = (field: 'allergies' | 'preferences', item: string) => {
     setFormData(prev => ({
       ...prev,
@@ -584,9 +660,10 @@ export function CheckoutDetails() {
       console.warn('Address sync error:', addrErr);
     }
 
+    const userEmail = currentUser?.email || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).email : '');
+
     // 2. Persist subscription in backend if possible
     try {
-      const userEmail = currentUser?.email || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).email : '');
       const subPayload = {
         id: `SUB-${Math.floor(100 + Math.random() * 900)}`,
         customerName: formData.name.trim(),
@@ -607,6 +684,8 @@ export function CheckoutDetails() {
         nextDelivery: 'Tomorrow, 08:00 AM - 09:00 AM',
         address: effectiveAddress,
         coordinates: mapCoords,
+        latitude: mapCoords?.lat,
+        longitude: mapCoords?.lng,
         allergies: formData.allergies,
         preferences: formData.preferences,
       };
@@ -636,6 +715,8 @@ export function CheckoutDetails() {
           existingCusts[existingIdx].totalOrders = (existingCusts[existingIdx].totalOrders || 0) + deliveries;
           existingCusts[existingIdx].address = effectiveAddress;
           existingCusts[existingIdx].coordinates = mapCoords;
+          (existingCusts[existingIdx] as any).latitude = mapCoords?.lat;
+          (existingCusts[existingIdx] as any).longitude = mapCoords?.lng;
           existingCusts[existingIdx].allergies = Array.from(new Set([...(existingCusts[existingIdx].allergies || []), ...formData.allergies]));
           existingCusts[existingIdx].status = 'Active';
         } else {
@@ -651,8 +732,10 @@ export function CheckoutDetails() {
             allergies: formData.allergies,
             address: effectiveAddress,
             coordinates: mapCoords,
+            latitude: mapCoords?.lat,
+            longitude: mapCoords?.lng,
             status: 'Active'
-          });
+          } as any);
         }
         saveAdminCustomers(existingCusts);
         window.dispatchEvent(new Event('shift24-customers-updated'));
@@ -676,12 +759,30 @@ export function CheckoutDetails() {
       startDate: startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       endDate: endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       address: effectiveAddress,
+      coordinates: mapCoords,
+      latitude: mapCoords?.lat,
+      longitude: mapCoords?.lng,
+      customerName: formData.name.trim(),
+      customerPhone: formData.phone.trim(),
+      customerEmail: userEmail || 'user@shift24.food',
     };
     localStorage.setItem('activeSubscription', JSON.stringify(subDetails));
     localStorage.setItem('isLoggedIn', 'true');
     if (formData.name) {
       localStorage.setItem('userName', formData.name.trim());
     }
+    if (formData.phone) {
+      localStorage.setItem('userPhone', formData.phone.trim());
+    }
+    try {
+      const u = localStorage.getItem('user');
+      if (u) {
+        const parsed = JSON.parse(u);
+        parsed.name = formData.name.trim() || parsed.name;
+        parsed.phone = formData.phone.trim() || parsed.phone;
+        localStorage.setItem('user', JSON.stringify(parsed));
+      }
+    } catch {}
     window.dispatchEvent(new Event('auth-change'));
 
     setTimeout(() => {
@@ -818,7 +919,7 @@ export function CheckoutDetails() {
                           <>Use Saved Address ({savedAddresses.length})</>
                         ) : (
                           <>
-                            <Plus className="w-3.5 h-3.5" /> + Enter New Address
+                            <Plus className="w-3.5 h-3.5" /> Enter New Address
                           </>
                         )}
                       </button>
@@ -848,13 +949,26 @@ export function CheckoutDetails() {
                                     </div>
                                     <span className="font-bold text-sm text-slate-900">{addr.title || 'Address'}</span>
                                   </div>
-                                  {addr.isDefault && (
-                                    <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
-                                      Default
-                                    </span>
-                                  )}
+                                  <div className="flex items-center gap-1.5">
+                                    {addr.isDefault && (
+                                      <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                                        Default
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        confirmDeleteCheckoutAddress(addr.id, idx);
+                                      }}
+                                      className="p-1.5 rounded-lg text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+                                      title="Delete saved address"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                                    </button>
+                                  </div>
                                 </div>
-                                <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed pl-6">
+                                <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed pl-6 pr-2">
                                   {addr.address}
                                 </p>
                               </div>

@@ -17,7 +17,9 @@ import {
   UserCheck,
   Receipt,
   Wallet,
-  TrendingUp
+  TrendingUp,
+  Truck,
+  Settings
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiGetMe, apiLogout, apiAdminLogin } from '../../services/api';
@@ -110,12 +112,14 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { label: 'Sales & Revenue', path: '/admin/sales', icon: TrendingUp },
     { label: 'Subscriptions', path: '/admin/subscriptions', icon: Repeat },
     { label: 'Orders & Dispatch', path: '/admin/orders', icon: ShoppingBag },
+    { label: 'Drivers', path: '/admin/drivers', icon: Truck },
     { label: 'Kitchen Board', path: '/admin/kitchen', icon: ChefHat },
     { label: 'Menu & Plans', path: '/admin/menu', icon: UtensilsCrossed },
     { label: 'Ingredient Purchases', path: '/admin/purchases', icon: Receipt },
     { label: 'Operational Expenses', path: '/admin/expenses', icon: Wallet },
     { label: 'Customers', path: '/admin/customers', icon: Users },
     { label: 'Users', path: '/admin/users', icon: UserCheck },
+    { label: 'Settings', path: '/admin/settings', icon: Settings },
   ];
 
   const isActive = (path: string) => {
@@ -142,16 +146,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         }`}
       >
         {/* Brand header */}
-        <div className="h-20 px-6 flex items-center justify-between border-b border-slate-800">
+        <div className="h-16 px-5 flex items-center justify-between border-b border-slate-800 shrink-0">
           <Link to="/admin" className="flex items-center gap-3">
             <div className="bg-emerald-500 p-2 rounded-xl flex items-center justify-center shrink-0 shadow-sm shadow-emerald-500/20">
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <span className="font-extrabold text-xl tracking-tight text-white uppercase">
+              <span className="font-extrabold text-xl tracking-tight text-white uppercase leading-none">
                 SHIFT<span className="text-emerald-400">24</span>
               </span>
-              <span className="block text-[10px] uppercase font-bold tracking-widest text-emerald-400">
+              <span className="block text-[9.5px] uppercase font-bold tracking-widest text-emerald-400 mt-0.5">
                 Admin Portal
               </span>
             </div>
@@ -159,26 +163,26 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           <button 
             type="button" 
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-slate-400 hover:text-white p-1 rounded-lg"
+            className="lg:hidden text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* System badge */}
-        <div className="px-6 py-4">
-          <div className="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-3 flex items-center gap-3">
+        <div className="px-4 py-2.5 shrink-0">
+          <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-2 flex items-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
             <div className="text-xs">
-              <div className="font-semibold text-slate-200">Dispatch & Kitchen Live</div>
-              <div className="text-slate-400 text-[11px]">All Systems Operational</div>
+              <div className="font-semibold text-slate-200 text-xs">Dispatch & Kitchen Live</div>
+              <div className="text-slate-400 text-[10px]">All Systems Operational</div>
             </div>
           </div>
         </div>
 
         {/* Nav items */}
-        <nav className="flex-1 px-4 py-2 space-y-1 overflow-y-auto">
-          <div className="px-3 text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+        <nav className="flex-1 px-3 py-1 space-y-0.5 overflow-y-auto custom-dark-scrollbar">
+          <div className="px-3 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 my-1">
             Operations
           </div>
           {navItems.map((item) => {
@@ -189,40 +193,40 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 key={item.path}
                 to={item.path}
                 onClick={() => setSidebarOpen(false)}
-                className={`flex items-center gap-3.5 px-3.5 py-3 rounded-xl font-semibold text-sm transition-all ${
+                className={`flex items-center gap-3 px-3 py-2 rounded-xl font-semibold text-xs sm:text-[13px] transition-all ${
                   active
-                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/25'
+                    ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/25 font-bold'
                     : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
                 }`}
               >
-                <Icon className={`w-5 h-5 ${active ? 'text-white' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <Icon className={`w-4.5 h-4.5 shrink-0 ${active ? 'text-white' : 'text-slate-400'}`} />
+                <span className="truncate">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
         {/* Footer actions in sidebar */}
-        <div className="p-4 border-t border-slate-800 space-y-2">
+        <div className="p-3 border-t border-slate-800 space-y-1.5 shrink-0">
           <Link
             to="/"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between w-full px-3.5 py-2.5 text-xs font-semibold text-slate-300 hover:text-emerald-400 bg-slate-800/50 hover:bg-slate-800 rounded-xl transition-colors"
+            className="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold text-slate-300 hover:text-emerald-400 bg-slate-800/60 hover:bg-slate-800 rounded-xl transition-colors"
           >
             <span className="flex items-center gap-2">
-              <ExternalLink className="w-4 h-4 text-emerald-400" />
-              Customer Website
+              <ExternalLink className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Customer Website</span>
             </span>
-            <span className="text-[10px] bg-slate-700 px-2 py-0.5 rounded text-slate-300">Live</span>
+            <span className="text-[10px] font-bold bg-slate-700/80 px-2 py-0.5 rounded text-slate-300">Live</span>
           </Link>
 
           <button
             type="button"
             onClick={handleLogout}
-            className="flex items-center gap-2 w-full px-3.5 py-2.5 text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-xl transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-2 text-xs font-semibold text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4 shrink-0" />
             <span>Sign Out Administrator</span>
           </button>
         </div>

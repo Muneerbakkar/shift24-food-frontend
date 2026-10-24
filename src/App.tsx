@@ -26,6 +26,7 @@ import { AdminLoginPage } from './pages/Admin/AdminLoginPage';
 import { AdminDashboard } from './pages/Admin/AdminDashboard';
 import { AdminSubscriptions } from './pages/Admin/AdminSubscriptions';
 import { AdminOrders } from './pages/Admin/AdminOrders';
+import { AdminDrivers } from './pages/Admin/AdminDrivers';
 import { AdminKitchen } from './pages/Admin/AdminKitchen';
 import { AdminMenu } from './pages/Admin/AdminMenu';
 import { AdminCustomers } from './pages/Admin/AdminCustomers';
@@ -34,6 +35,11 @@ import { AdminPurchases } from './pages/Admin/AdminPurchases';
 import { AdminExpenses } from './pages/Admin/AdminExpenses';
 import { AdminSales } from './pages/Admin/AdminSales';
 import { AdminUsers } from './pages/Admin/AdminUsers';
+import { AdminSettings } from './pages/Admin/AdminSettings';
+
+// Driver Portal Components
+import { DriverLoginPage } from './pages/Driver/DriverLoginPage';
+import { DriverPortal } from './pages/Driver/DriverPortal';
 
 // Set to true to re-enable instant delivery / a-la-carte menu and cart
 const ENABLE_CART = false;
@@ -68,18 +74,25 @@ export default function App() {
           <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
           <Route path="/refund-policy" element={<ReturnRefundPolicy />} />
 
+          {/* Driver Fleet Portal Routes */}
+          <Route path="/driver/login" element={<DriverLoginPage />} />
+          <Route path="/driver" element={<DriverPortal />} />
+          <Route path="/driver/orders" element={<DriverPortal />} />
+
           {/* Admin Portal Routes */}
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/admin" element={<AdminLayout><AdminDashboard /></AdminLayout>} />
           <Route path="/admin/sales" element={<AdminLayout><AdminSales /></AdminLayout>} />
           <Route path="/admin/subscriptions" element={<AdminLayout><AdminSubscriptions /></AdminLayout>} />
           <Route path="/admin/orders" element={<AdminLayout><AdminOrders /></AdminLayout>} />
+          <Route path="/admin/drivers" element={<AdminLayout><AdminDrivers /></AdminLayout>} />
           <Route path="/admin/kitchen" element={<AdminLayout><AdminKitchen /></AdminLayout>} />
           <Route path="/admin/menu" element={<AdminLayout><AdminMenu /></AdminLayout>} />
           <Route path="/admin/customers" element={<AdminLayout><AdminCustomers /></AdminLayout>} />
           <Route path="/admin/purchases" element={<AdminLayout><AdminPurchases /></AdminLayout>} />
           <Route path="/admin/expenses" element={<AdminLayout><AdminExpenses /></AdminLayout>} />
           <Route path="/admin/users" element={<AdminLayout><AdminUsers /></AdminLayout>} />
+          <Route path="/admin/settings" element={<AdminLayout><AdminSettings /></AdminLayout>} />
           <Route path="/admin/profile" element={<AdminLayout><AdminProfile /></AdminLayout>} />
         </Routes>
       </Layout>

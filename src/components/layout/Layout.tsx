@@ -6,8 +6,9 @@ import { ScrollToHashElement } from '../utils/ScrollToHashElement';
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
+  const isDriver = location.pathname.startsWith('/driver');
 
-  if (isAdmin) {
+  if (isAdmin || isDriver) {
     return <>{children}</>;
   }
 

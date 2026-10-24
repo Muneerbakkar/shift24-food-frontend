@@ -81,46 +81,58 @@ export function AdminDashboard() {
       })
       .catch(() => {});
 
-    // Sync orders from backend
-    fetchOrders()
-      .then(res => {
-        if (res && res.success && Array.isArray(res.data)) {
-          const dummyOrderIds = new Set(['ORD-901', 'ORD-902', 'ORD-903', 'ORD-904', 'ORD-905', 'ORD-906']);
-          const dummyCustomerNames = new Set(['Rahul Sharma', 'Ananya Roy', 'Vikram Menon', 'Pooja Iyer', 'Karthik Nair']);
-          const backendOrders: AdminOrder[] = res.data
-            .filter((o: any) => !dummyOrderIds.has(o.orderId || o.id) && !dummyCustomerNames.has(o.customerName))
-            .map((o: any) => ({
-              id: o.orderId || o.id || o._id,
-              subscriptionId: o.subscriptionId || '',
-              customerName: o.customerName || 'Customer',
-              customerPhone: o.customerPhone || '',
-              planTitle: o.planTitle || 'Meal Plan',
-              mealName: o.mealName || 'Scheduled Meal',
-              mealType: o.mealType || 'Breakfast',
-              deliveryDate: o.deliveryDate || 'Today',
-              deliveryTimeSlot: o.deliveryTimeSlot || '07:30 AM - 08:30 AM',
-              address: o.address || '',
-              status: o.status || 'Preparing',
-              amount: o.amount || 0,
-              paymentMethod: o.paymentMethod || 'Online / Paid',
-              allergies: o.allergies || []
-            }));
+    const refreshOrders = () => {
+      fetchOrders()
+        .then(res => {
+          if (res && res.success && Array.isArray(res.data)) {
+            const dummyOrderIds = new Set(['ORD-901', 'ORD-902', 'ORD-903', 'ORD-904', 'ORD-905', 'ORD-906']);
+            const dummyCustomerNames = new Set(['Rahul Sharma', 'Ananya Roy', 'Vikram Menon', 'Pooja Iyer', 'Karthik Nair']);
+            const backendOrders: AdminOrder[] = res.data
+              .filter((o: any) => !dummyOrderIds.has(o.orderId || o.id) && !dummyCustomerNames.has(o.customerName))
+              .map((o: any) => ({
+                id: o.orderId || o.id || o._id,
+                subscriptionId: o.subscriptionId || '',
+                customerName: o.customerName || 'Customer',
+                customerPhone: o.customerPhone || '',
+                planTitle: o.planTitle || 'Meal Plan',
+                mealName: o.mealName || 'Scheduled Meal',
+                mealType: o.mealType || 'Breakfast',
+                deliveryDate: o.deliveryDate || 'Today',
+                deliveryTimeSlot: o.deliveryTimeSlot || '07:30 AM - 08:30 AM',
+                address: o.address || '',
+                status: o.status || 'Preparing',
+                amount: o.amount || 0,
+                paymentMethod: o.paymentMethod || 'Online / Paid',
+                allergies: o.allergies || []
+              }));
 
-          setOrders(backendOrders);
-          saveAdminOrders(backendOrders);
-        }
-      })
-      .catch(() => {});
+            setOrders(backendOrders);
+            saveAdminOrders(backendOrders);
+          }
+        })
+        .catch(() => {});
+    };
+
+    // Sync orders from backend
+    refreshOrders();
+
+    window.addEventListener('shift24-orders-updated', refreshOrders);
+    return () => {
+      window.removeEventListener('shift24-orders-updated', refreshOrders);
+    };
   }, []);
 
   const totalRevenue = subscriptions.reduce((sum, s) => sum + s.totalPrice, 0);
   const activeSubs = subscriptions.filter(s => s.status === 'Active');
 
   const isTodayOrder = (o: AdminOrder) => {
-    if (o.id.includes('-M-')) return false;
     const d = (o.deliveryDate || '').toLowerCase();
-    const todayFormatted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toLowerCase();
-    const todayISO = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const todayISO = `${y}-${m}-${day}`;
+    const todayFormatted = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toLowerCase();
     return d.includes('today') || d.includes(todayISO) || d.includes(todayFormatted);
   };
 

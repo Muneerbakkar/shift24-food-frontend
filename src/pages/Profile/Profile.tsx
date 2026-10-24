@@ -1,10 +1,13 @@
-import { useState, useEffect } from 'react';
+import { isDateSkipped, isMealSkipped } from '../Admin/adminData';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check, Pause, Play, Clock, X, AlertTriangle } from 'lucide-react';
+import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check, Pause, Play, Clock, X, AlertTriangle, Compass, Plus, Home, Briefcase, Building, CheckCircle2, Mail, KeyRound, Coffee, Sun, Moon, Utensils, CalendarX, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { commonIngredients } from '../../data/mockData';
 import { jsPDF } from 'jspdf';
 import { toPng } from 'html-to-image';
+import { LocationMapPicker, GeocodedAddress } from '../../components/ui/LocationMapPicker';
+import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
 
 export function ProfilePage() {
   const navigate = useNavigate();
@@ -15,7 +18,209 @@ export function ProfilePage() {
   } catch (e) {
     // ignore
   }
-  const userName = loggedInUser?.name || localStorage.getItem('userName') || 'Alex Doe';
+
+  // Check activeSubscription for name/phone from subscription collection
+  let localActiveSub: any = null;
+  try {
+    const rawSub = localStorage.getItem('activeSubscription');
+    if (rawSub) localActiveSub = JSON.parse(rawSub);
+  } catch {}
+
+  const [userProfile, setUserProfile] = useState<{
+    name: string;
+    email: string;
+    phone: string;
+  }>(() => {
+    return {
+      name: loggedInUser?.name || localActiveSub?.customerName || localStorage.getItem('userName') || '',
+      email: loggedInUser?.email || localActiveSub?.customerEmail || localStorage.getItem('userEmail') || '',
+      phone: loggedInUser?.phone || localActiveSub?.customerPhone || localStorage.getItem('userPhone') || '',
+    };
+  });
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+
+  const displayName = userProfile.name || loggedInUser?.name || localActiveSub?.customerName || localStorage.getItem('userName') || 'Alex Doe';
+
+  useEffect(() => {
+    const fetchFreshUser = async () => {
+      try {
+        const { apiGetMe, fetchSubscriptions } = await import('../../services/api');
+        const res = await apiGetMe();
+        const fresh = res?.user || res?.data;
+        if (res && res.success && fresh) {
+          setUserProfile(prev => ({
+            name: fresh.name || prev.name || '',
+            email: fresh.email || prev.email || '',
+            phone: fresh.phone || prev.phone || '',
+          }));
+          const updatedLocalUser = { ...loggedInUser, ...fresh };
+          localStorage.setItem('user', JSON.stringify(updatedLocalUser));
+          if (fresh.name) localStorage.setItem('userName', fresh.name);
+          if (fresh.email) localStorage.setItem('userEmail', fresh.email);
+          if (fresh.phone) localStorage.setItem('userPhone', fresh.phone);
+          window.dispatchEvent(new Event('auth-change'));
+        }
+
+        // Direct fetch from MongoDB subscriptions to guarantee customerName and customerPhone
+        const userEmail = fresh?.email || loggedInUser?.email || localStorage.getItem('userEmail');
+        if (userEmail) {
+          const subRes = await fetchSubscriptions({ email: userEmail });
+          if (subRes && subRes.success && Array.isArray(subRes.data) && subRes.data.length > 0) {
+            const latestSub = subRes.data[0];
+            if (latestSub.customerName || latestSub.customerPhone) {
+              setUserProfile(prev => ({
+                ...prev,
+                name: latestSub.customerName || prev.name,
+                phone: latestSub.customerPhone || prev.phone
+              }));
+              if (latestSub.customerName) localStorage.setItem('userName', latestSub.customerName);
+              if (latestSub.customerPhone) localStorage.setItem('userPhone', latestSub.customerPhone);
+              try {
+                const cur = localStorage.getItem('user');
+                if (cur) {
+                  const parsed = JSON.parse(cur);
+                  if (latestSub.customerName) parsed.name = latestSub.customerName;
+                  if (latestSub.customerPhone) parsed.phone = latestSub.customerPhone;
+                  localStorage.setItem('user', JSON.stringify(parsed));
+                }
+              } catch {}
+              window.dispatchEvent(new Event('auth-change'));
+            }
+          }
+        }
+      } catch (err) {
+        // use local
+      }
+    };
+    if (localStorage.getItem('token') || loggedInUser?.email || localStorage.getItem('userEmail')) {
+      fetchFreshUser();
+    }
+  }, []);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userProfile.name.trim()) {
+      toast.error('Please enter your full name');
+      return;
+    }
+
+    try {
+      setIsUpdatingProfile(true);
+      const { apiUpdateProfile } = await import('../../services/api');
+      const res = await apiUpdateProfile({
+        name: userProfile.name.trim(),
+        phone: userProfile.phone.trim(),
+      });
+
+      if (res && res.success === false) {
+        toast.error(res.message || 'Failed to update profile');
+        return;
+      }
+
+      const updatedUser = {
+        ...loggedInUser,
+        name: userProfile.name.trim(),
+        phone: userProfile.phone.trim(),
+      };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      localStorage.setItem('userName', userProfile.name.trim());
+      if (userProfile.phone) {
+        localStorage.setItem('userPhone', userProfile.phone.trim());
+      }
+      try {
+        const stored = localStorage.getItem('activeSubscription');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.customerName = userProfile.name.trim();
+          parsed.customerPhone = userProfile.phone.trim();
+          localStorage.setItem('activeSubscription', JSON.stringify(parsed));
+        }
+      } catch {}
+
+      window.dispatchEvent(new Event('auth-change'));
+      toast.success('Profile information updated successfully!');
+    } catch (err: any) {
+      console.warn('Profile update error:', err);
+      const updatedUser = {
+        ...loggedInUser,
+        name: userProfile.name.trim(),
+        phone: userProfile.phone.trim(),
+      };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      localStorage.setItem('userName', userProfile.name.trim());
+      if (userProfile.phone) {
+        localStorage.setItem('userPhone', userProfile.phone.trim());
+      }
+      try {
+        const stored = localStorage.getItem('activeSubscription');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.customerName = userProfile.name.trim();
+          parsed.customerPhone = userProfile.phone.trim();
+          localStorage.setItem('activeSubscription', JSON.stringify(parsed));
+        }
+      } catch {}
+      window.dispatchEvent(new Event('auth-change'));
+      toast.success('Profile information saved locally!');
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordForm.currentPassword) {
+      toast.error('Please enter your current password');
+      return;
+    }
+    if (!passwordForm.newPassword) {
+      toast.error('Please enter a new password');
+      return;
+    }
+    if (passwordForm.newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters');
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
+
+    try {
+      setIsUpdatingPassword(true);
+      const { apiChangePassword } = await import('../../services/api');
+      const res = await apiChangePassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+
+      if (res && res.success === false) {
+        toast.error(res.message || 'Failed to change password');
+        return;
+      }
+
+      toast.success('Password updated successfully!');
+      setPasswordForm({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+    } catch (err: any) {
+      console.warn('Change password error:', err);
+      toast.error('Failed to update password. Please check your current password.');
+    } finally {
+      setIsUpdatingPassword(false);
+    }
+  };
+
   const [activeTab, setActiveTab] = useState('subscriptions');
   const [showMobileContent, setShowMobileContent] = useState(false);
   const [expandedSub, setExpandedSub] = useState<string | null>(null);
@@ -57,15 +262,126 @@ export function ProfilePage() {
   });
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
-  const [addressForm, setAddressForm] = useState({ title: '', address: '', isDefault: false });
+  const [savedTabAddressFields, setSavedTabAddressFields] = useState({
+    tag: 'Home',
+    flatNo: '',
+    street: '',
+    area: '',
+    landmark: '',
+    city: 'Kochi',
+    state: 'Kerala',
+    pincode: '',
+    isDefault: false,
+  });
+  const [showSavedTabMapPicker, setShowSavedTabMapPicker] = useState(false);
+  const [savedTabMapCoords, setSavedTabMapCoords] = useState<{ lat: number; lng: number }>({
+    lat: 9.9816,
+    lng: 76.2673
+  });
+
+  const formatSavedTabAddress = (fields: typeof savedTabAddressFields) => {
+    return [
+      fields.flatNo,
+      fields.street,
+      fields.area,
+      fields.landmark ? `(Near ${fields.landmark})` : null,
+      fields.city,
+      fields.state,
+      fields.pincode
+    ].filter(Boolean).join(', ');
+  };
+
+  const handleStartAddNewAddress = () => {
+    setEditingAddressId(null);
+    setIsAddingAddress(true);
+    setShowSavedTabMapPicker(false);
+    setSavedTabAddressFields({
+      tag: 'Home',
+      flatNo: '',
+      street: '',
+      area: '',
+      landmark: '',
+      city: 'Kochi',
+      state: 'Kerala',
+      pincode: '',
+      isDefault: addresses.length === 0,
+    });
+  };
+
+  const handleSavedTabLocationPicked = (geo: GeocodedAddress, isSilent: boolean = false) => {
+    setSavedTabMapCoords({ lat: geo.lat, lng: geo.lng });
+    setSavedTabAddressFields(prev => ({
+      ...prev,
+      street: geo.street || geo.displayName.split(',')[0] || prev.street,
+      area: geo.area || prev.area,
+      city: geo.city || prev.city || 'Kochi',
+      state: geo.state || prev.state || 'Kerala',
+      pincode: geo.pincode || prev.pincode
+    }));
+    if (!isSilent) {
+      toast.success('Location updated & address filled from map!', { id: 'saved-tab-location-toast' });
+    }
+  };
 
   const handleEditAddress = (id: string) => {
     const target = addresses.find(a => a.id === id);
-    if (target) {
-      setAddressForm({ title: target.title, address: target.address, isDefault: target.isDefault });
-      setEditingAddressId(id);
-      setIsAddingAddress(false);
+    if (!target) return;
+
+    setEditingAddressId(id);
+    setIsAddingAddress(false);
+    setShowSavedTabMapPicker(false);
+
+    let rawAddr = target.address;
+    let landmarkVal = '';
+    const landmarkMatch = rawAddr.match(/\(Near\s+([^)]+)\)/i);
+    if (landmarkMatch) {
+      landmarkVal = landmarkMatch[1].trim();
+      rawAddr = rawAddr.replace(/\(Near\s+[^)]+\)/i, '').replace(/,\s*,/g, ',');
     }
+
+    const parts = rawAddr.split(',').map(s => s.trim()).filter(Boolean);
+    
+    let pincodeVal = '';
+    if (parts.length > 0 && /^\d{6}$/.test(parts[parts.length - 1])) {
+      pincodeVal = parts.pop()!;
+    }
+    let stateVal = 'Kerala';
+    if (parts.length > 0 && ['kerala', 'tamil nadu', 'karnataka'].includes(parts[parts.length - 1].toLowerCase())) {
+      stateVal = parts.pop()!;
+    }
+    let cityVal = 'Kochi';
+    if (parts.length > 0) {
+      cityVal = parts.pop()!;
+    }
+
+    let flatVal = '';
+    let streetVal = '';
+    let areaVal = '';
+
+    if (parts.length === 1) {
+      streetVal = parts[0];
+    } else if (parts.length === 2) {
+      streetVal = parts[0];
+      areaVal = parts[1];
+    } else if (parts.length >= 3) {
+      flatVal = parts[0];
+      streetVal = parts[1];
+      areaVal = parts.slice(2).join(', ');
+    } else {
+      streetVal = target.address;
+    }
+
+    setSavedTabAddressFields({
+      tag: target.title || 'Home',
+      flatNo: flatVal,
+      street: streetVal,
+      area: areaVal,
+      landmark: landmarkVal,
+      city: cityVal || 'Kochi',
+      state: stateVal || 'Kerala',
+      pincode: pincodeVal,
+      isDefault: target.isDefault || false,
+    });
   };
 
   const handleDeleteAddress = async (id: string) => {
@@ -84,24 +400,43 @@ export function ProfilePage() {
   };
 
   const handleSaveAddress = async () => {
-    if (!addressForm.title || !addressForm.address) return;
+    const formatted = formatSavedTabAddress(savedTabAddressFields);
+    if (!formatted.trim()) {
+      toast.error('Please enter address details');
+      return;
+    }
+
+    if (!savedTabAddressFields.street.trim() && !savedTabAddressFields.flatNo.trim()) {
+      toast.error('Please enter street or flat / house details');
+      return;
+    }
+
+    const title = savedTabAddressFields.tag || 'Home';
+    const isDefault = savedTabAddressFields.isDefault;
+
     let nextList: any[] = [];
     if (editingAddressId) {
       nextList = addresses.map(a => {
-        if (a.id === editingAddressId) return { ...a, ...addressForm };
-        if (addressForm.isDefault && a.id !== editingAddressId) return { ...a, isDefault: false };
+        if (a.id === editingAddressId) {
+          return { ...a, title, address: formatted, isDefault };
+        }
+        if (isDefault && a.id !== editingAddressId) {
+          return { ...a, isDefault: false };
+        }
         return a;
       });
-      setAddresses(nextList);
-      setEditingAddressId(null);
+      toast.success('Address updated successfully');
     } else {
       const newId = Date.now().toString();
-      const updated = addressForm.isDefault ? addresses.map(a => ({...a, isDefault: false})) : addresses;
-      nextList = [...updated, { id: newId, ...addressForm }];
-      setAddresses(nextList);
-      setIsAddingAddress(false);
+      const updated = isDefault ? addresses.map(a => ({ ...a, isDefault: false })) : addresses;
+      nextList = [...updated, { id: newId, title, address: formatted, isDefault }];
+      toast.success('Address saved successfully');
     }
-    setAddressForm({ title: '', address: '', isDefault: false });
+
+    setAddresses(nextList);
+    setIsAddingAddress(false);
+    setEditingAddressId(null);
+    setShowSavedTabMapPicker(false);
 
     if (loggedInUser && localStorage.getItem('token')) {
       try {
@@ -137,15 +472,64 @@ export function ProfilePage() {
   };
 
   const [skippedDates, setSkippedDates] = useState<string[]>([]);
+  const [skippedMeals, setSkippedMeals] = useState<string[]>([]);
+  const [mealSkipModalOpen, setMealSkipModalOpen] = useState(false);
+  const [selectedDateForMeals, setSelectedDateForMeals] = useState<{
+    date: Date;
+    dateStr: string;
+    formattedDate: string;
+    sub: any;
+  } | null>(null);
   const [allergies, setAllergies] = useState<string[]>([]);
   const [preferences, setPreferences] = useState<string[]>([]);
-  const [isEditingDiet, setIsEditingDiet] = useState(false);
 
-  const toggleProfileSelection = (field: 'allergies' | 'preferences', item: string) => {
+  const toggleProfileSelection = async (field: 'allergies' | 'preferences', item: string, sub?: any) => {
+    const targetSub = sub || subscriptionsList[0];
+    const currentList = field === 'allergies'
+      ? (targetSub?.allergies || allergies)
+      : (targetSub?.preferences || preferences);
+
+    const isRemoving = currentList.includes(item);
+    const updatedList = isRemoving
+      ? currentList.filter((i: string) => i !== item)
+      : [...currentList, item];
+
     if (field === 'allergies') {
-      setAllergies(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
+      setAllergies(updatedList);
     } else {
-      setPreferences(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
+      setPreferences(updatedList);
+    }
+
+    if (targetSub) {
+      const payload = field === 'allergies'
+        ? { allergies: updatedList }
+        : { preferences: updatedList };
+
+      try {
+        const { updateBackendSubscriptionDetails } = await import('../../services/api');
+        await updateBackendSubscriptionDetails(targetSub.id, payload);
+
+        setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { ...s, ...payload } : s));
+
+        const stored = localStorage.getItem('activeSubscription');
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active') {
+              localStorage.setItem('activeSubscription', JSON.stringify({ ...parsed, ...payload }));
+            }
+          } catch (e) {}
+        }
+
+        const label = field === 'allergies' ? 'Allergy' : 'Preference';
+        toast.success(
+          isRemoving ? `Removed ${item} from ${label.toLowerCase()}s` : `Added ${item} to ${label.toLowerCase()}s`,
+          { id: `diet-${field}` }
+        );
+      } catch (err) {
+        console.warn('Failed to sync dietary preference:', err);
+        toast.error('Failed to update dietary preference. Please try again.');
+      }
     }
   };
 
@@ -160,8 +544,10 @@ export function ProfilePage() {
   let endDate = new Date(startDate);
 
   while (daysCounted < durationDays) {
-    const dateStr = `${tempDate.getFullYear()}-${tempDate.getMonth()}-${tempDate.getDate()}`;
-    if (!skippedDates.includes(dateStr)) {
+    const mPadded = String(tempDate.getMonth() + 1).padStart(2, '0');
+    const dPadded = String(tempDate.getDate()).padStart(2, '0');
+    const dateStr = `${tempDate.getFullYear()}-${mPadded}-${dPadded}`;
+    if (!isDateSkipped(skippedDates, dateStr)) {
       activeDates.add(dateStr);
       daysCounted++;
       endDate = new Date(tempDate);
@@ -169,18 +555,350 @@ export function ProfilePage() {
     tempDate.setDate(tempDate.getDate() + 1);
   }
 
-  const handleDayClick = (year: number, month: number, day: number) => {
+  const getSubAvailableMealSlots = (sub?: any): Array<{
+    type: 'Breakfast' | 'Lunch' | 'Dinner';
+    label: string;
+    time: string;
+  }> => {
+    const mealsPerDay = parseInt(sub?.mealsPerDay as any) || 3;
+    const slot = (sub?.slot || 'all').toLowerCase();
+
+    const allSlots = [
+      { type: 'Breakfast' as const, label: 'Breakfast', time: '07:30 AM - 08:30 AM' },
+      { type: 'Lunch' as const, label: 'Lunch', time: '12:00 PM - 01:00 PM' },
+      { type: 'Dinner' as const, label: 'Dinner', time: '07:30 PM - 08:30 PM' }
+    ];
+
+    if (mealsPerDay === 3 || slot === 'all') {
+      return allSlots;
+    }
+    if (mealsPerDay === 2) {
+      if (slot.includes('dinner')) {
+        return allSlots.filter(s => s.type !== 'Breakfast');
+      }
+      return allSlots.filter(s => s.type !== 'Dinner');
+    }
+    if (slot.includes('breakfast')) {
+      return allSlots.filter(s => s.type === 'Breakfast');
+    }
+    if (slot.includes('dinner')) {
+      return allSlots.filter(s => s.type === 'Dinner');
+    }
+    return allSlots.filter(s => s.type === 'Lunch');
+  };
+
+  const checkIsMealSkipped = (dateStr: string, mealType: 'Breakfast' | 'Lunch' | 'Dinner', sub?: any) => {
+    const currentDates = sub?.skippedDates || skippedDates;
+    const currentMeals = sub?.skippedMeals || skippedMeals;
+    return isMealSkipped(currentDates, currentMeals, dateStr, mealType);
+  };
+
+  const getDateSkipStatus = (dateStr: string, sub?: any): 'none' | 'partial' | 'all' => {
+    const currentDates = sub?.skippedDates || skippedDates;
+    if (isDateSkipped(currentDates, dateStr)) return 'all';
+
+    const availableSlots = getSubAvailableMealSlots(sub);
+    if (availableSlots.length === 0) return 'none';
+
+    let skippedCount = 0;
+    for (const s of availableSlots) {
+      if (checkIsMealSkipped(dateStr, s.type, sub)) {
+        skippedCount++;
+      }
+    }
+
+    if (skippedCount === 0) return 'none';
+    if (skippedCount === availableSlots.length) return 'all';
+    return 'partial';
+  };
+
+  const openMealSkipModal = (clickedDate: Date, dateStr: string, sub?: any) => {
+    const formattedDate = clickedDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    setSelectedDateForMeals({
+      date: clickedDate,
+      dateStr,
+      formattedDate,
+      sub: sub || subscriptionsList[0]
+    });
+    setMealSkipModalOpen(true);
+  };
+
+  const handleToggleMealSlot = async (
+    targetDateStr: string,
+    slotType: 'Breakfast' | 'Lunch' | 'Dinner',
+    sub?: any
+  ) => {
+    const targetSub = sub || subscriptionsList[0];
+    if (!targetSub) return;
+
+    const currentDates = targetSub.skippedDates || skippedDates;
+    const currentMeals = targetSub.skippedMeals || skippedMeals;
+
+    const mealKey = `${targetDateStr}:${slotType}`;
+    const isCurrentlySkipped = isMealSkipped(currentDates, currentMeals, targetDateStr, slotType);
+
+    const availableSlots = getSubAvailableMealSlots(targetSub);
+    let nextMeals = [...currentMeals];
+    let nextDates = [...currentDates];
+
+    if (isCurrentlySkipped) {
+      // Restore this meal slot
+      nextMeals = nextMeals.filter(m => {
+        const clean = String(m).trim().toLowerCase();
+        return clean !== mealKey.toLowerCase() && !clean.includes(mealKey.toLowerCase());
+      });
+      // Also if whole date was skipped, un-skip whole date and keep other slots in nextMeals
+      if (isDateSkipped(nextDates, targetDateStr)) {
+        nextDates = nextDates.filter(d => !isDateSkipped([d], targetDateStr));
+        for (const s of availableSlots) {
+          if (s.type !== slotType) {
+            const otherKey = `${targetDateStr}:${s.type}`;
+            if (!nextMeals.some(m => m.toLowerCase() === otherKey.toLowerCase())) {
+              nextMeals.push(otherKey);
+            }
+          }
+        }
+      }
+    } else {
+      // Skip this meal slot
+      if (!nextMeals.some(m => m.toLowerCase() === mealKey.toLowerCase())) {
+        nextMeals.push(mealKey);
+      }
+      // Check if now all available slots are skipped
+      const allSlotsSkipped = availableSlots.every(s => 
+        s.type === slotType || nextMeals.some(m => m.toLowerCase() === `${targetDateStr}:${s.type}`.toLowerCase())
+      );
+      if (allSlotsSkipped) {
+        if (!isDateSkipped(nextDates, targetDateStr)) {
+          nextDates.push(targetDateStr);
+        }
+      }
+    }
+
+    setSkippedDates(nextDates);
+    setSkippedMeals(nextMeals);
+
+    try {
+      const { updateBackendSubscriptionDetails } = await import('../../services/api');
+      await updateBackendSubscriptionDetails(targetSub.id, { 
+        skippedDates: nextDates,
+        skippedMeals: nextMeals
+      });
+
+      setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
+        ...s, 
+        skippedDates: nextDates,
+        skippedMeals: nextMeals
+      } : s));
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active') {
+            localStorage.setItem('activeSubscription', JSON.stringify({ 
+              ...parsed, 
+              skippedDates: nextDates,
+              skippedMeals: nextMeals
+            }));
+          }
+        } catch (e) {}
+      }
+
+      // Sync admin subscriptions store in real-time
+      try {
+        const rawAdmin = localStorage.getItem('shift24_admin_subscriptions');
+        if (rawAdmin) {
+          const parsedAdmin = JSON.parse(rawAdmin);
+          const updatedAdmin = parsedAdmin.map((s: any) => {
+            if (s.id === targetSub.id || s.subId === targetSub.id || (targetSub.customerEmail && s.customerEmail === targetSub.customerEmail) || parsedAdmin.length === 1) {
+              return { ...s, skippedDates: nextDates, skippedMeals: nextMeals };
+            }
+            return s;
+          });
+          localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdmin));
+          window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+          window.dispatchEvent(new Event('shift24-orders-updated'));
+        }
+      } catch (e) {}
+
+      if (isCurrentlySkipped) {
+        toast.success(`Restored ${slotType} for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
+      } else {
+        toast.success(`Skipped ${slotType} for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
+      }
+    } catch (err) {
+      console.warn('Failed to update meal skip:', err);
+      toast.error('Failed to update meal delivery.');
+    }
+  };
+
+  const handleSkipEntireDay = async (targetDateStr: string, sub?: any) => {
+    const targetSub = sub || subscriptionsList[0];
+    if (!targetSub) return;
+
+    const currentDates = targetSub.skippedDates || skippedDates;
+    const currentMeals = targetSub.skippedMeals || skippedMeals;
+    const availableSlots = getSubAvailableMealSlots(targetSub);
+
+    let nextDates = [...currentDates];
+    if (!isDateSkipped(nextDates, targetDateStr)) {
+      nextDates.push(targetDateStr);
+    }
+    let nextMeals = [...currentMeals];
+    for (const s of availableSlots) {
+      const mealKey = `${targetDateStr}:${s.type}`;
+      if (!nextMeals.some(m => m.toLowerCase() === mealKey.toLowerCase())) {
+        nextMeals.push(mealKey);
+      }
+    }
+
+    setSkippedDates(nextDates);
+    setSkippedMeals(nextMeals);
+
+    try {
+      const { updateBackendSubscriptionDetails } = await import('../../services/api');
+      await updateBackendSubscriptionDetails(targetSub.id, { 
+        skippedDates: nextDates,
+        skippedMeals: nextMeals
+      });
+
+      setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
+        ...s, 
+        skippedDates: nextDates,
+        skippedMeals: nextMeals
+      } : s));
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          localStorage.setItem('activeSubscription', JSON.stringify({ 
+            ...parsed, 
+            skippedDates: nextDates,
+            skippedMeals: nextMeals
+          }));
+        } catch (e) {}
+      }
+
+      toast.success(`Skipped all meals for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
+    } catch (err) {
+      toast.error('Failed to update delivery');
+    }
+  };
+
+  const handleRestoreEntireDay = async (targetDateStr: string, sub?: any) => {
+    const targetSub = sub || subscriptionsList[0];
+    if (!targetSub) return;
+
+    const currentDates = targetSub.skippedDates || skippedDates;
+    const currentMeals = targetSub.skippedMeals || skippedMeals;
+
+    const nextDates = currentDates.filter(d => !isDateSkipped([d], targetDateStr));
+    const nextMeals = currentMeals.filter(m => !String(m).toLowerCase().includes(targetDateStr.toLowerCase()));
+
+    setSkippedDates(nextDates);
+    setSkippedMeals(nextMeals);
+
+    try {
+      const { updateBackendSubscriptionDetails } = await import('../../services/api');
+      await updateBackendSubscriptionDetails(targetSub.id, { 
+        skippedDates: nextDates,
+        skippedMeals: nextMeals
+      });
+
+      setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
+        ...s, 
+        skippedDates: nextDates,
+        skippedMeals: nextMeals
+      } : s));
+
+      const stored = localStorage.getItem('activeSubscription');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          localStorage.setItem('activeSubscription', JSON.stringify({ 
+            ...parsed, 
+            skippedDates: nextDates,
+            skippedMeals: nextMeals
+          }));
+        } catch (e) {}
+      }
+
+      toast.success(`Restored all meals for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
+    } catch (err) {
+      toast.error('Failed to restore delivery');
+    }
+  };
+
+  const handleDayClick = async (year: number, month: number, day: number, sub?: any) => {
     const clickedDate = new Date(year, month, day);
     // Remove the time portion for accurate 'today' comparison
     const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     if (clickedDate < todayDateOnly) return; 
 
-    const dateStr = `${year}-${month}-${day}`;
-    setSkippedDates(prev => 
-      prev.includes(dateStr) 
-        ? prev.filter(d => d !== dateStr) 
-        : [...prev, dateStr]
-    );
+    // Month in JS is 0-indexed, format to standard YYYY-MM-DD
+    const mPadded = String(month + 1).padStart(2, '0');
+    const dPadded = String(day).padStart(2, '0');
+    const dateStr = `${year}-${mPadded}-${dPadded}`;
+
+    const targetSub = sub || subscriptionsList[0];
+    const currentSkipped = targetSub?.skippedDates || skippedDates;
+    const willSkip = !isDateSkipped(currentSkipped, dateStr);
+    const nextSkipped = willSkip 
+      ? [...currentSkipped, dateStr] 
+      : currentSkipped.filter((d: string) => !isDateSkipped([d], dateStr));
+
+    setSkippedDates(nextSkipped);
+
+    if (targetSub) {
+      try {
+        const { updateBackendSubscriptionDetails } = await import('../../services/api');
+        await updateBackendSubscriptionDetails(targetSub.id, { skippedDates: nextSkipped });
+        setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { ...s, skippedDates: nextSkipped } : s));
+
+        const stored = localStorage.getItem('activeSubscription');
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active') {
+              localStorage.setItem('activeSubscription', JSON.stringify({ ...parsed, skippedDates: nextSkipped }));
+            }
+          } catch (e) {}
+        }
+
+        // Sync admin subscriptions store in real-time
+        try {
+          const rawAdmin = localStorage.getItem('shift24_admin_subscriptions');
+          if (rawAdmin) {
+            const parsedAdmin = JSON.parse(rawAdmin);
+            const updatedAdmin = parsedAdmin.map((s: any) => {
+              if (s.id === targetSub.id || s.subId === targetSub.id || (targetSub.customerEmail && s.customerEmail === targetSub.customerEmail) || parsedAdmin.length === 1) {
+                return { ...s, skippedDates: nextSkipped };
+              }
+              return s;
+            });
+            localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdmin));
+            window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+          }
+        } catch (e) {}
+
+        const dateFormatted = clickedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (willSkip) {
+          toast.success(`Skipped delivery for ${dateFormatted}`);
+        } else {
+          toast.success(`Restored delivery for ${dateFormatted}`);
+        }
+      } catch (err) {
+        console.warn('Failed to sync skipped date:', err);
+        toast.error('Failed to update delivery date. Please try again.');
+      }
+    }
   };
 
   const getDaysInMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -193,7 +911,6 @@ export function ProfilePage() {
 
   const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(true);
-  const [managingSub, setManagingSub] = useState<any | null>(null);
 
   // Pause Delivery with Date Selection Modal State
   const [pausingSub, setPausingSub] = useState<any | null>(null);
@@ -260,6 +977,30 @@ export function ProfilePage() {
         } catch (e) {}
       }
 
+      // Also update shift24_admin_subscriptions in localStorage
+      try {
+        const rawAdminSubs = localStorage.getItem('shift24_admin_subscriptions');
+        if (rawAdminSubs) {
+          const adminSubs = JSON.parse(rawAdminSubs);
+          const updatedAdminSubs = adminSubs.map((s: any) => {
+            if (s.id === sub.id || s.subId === sub.id || (sub.email && s.customerEmail === sub.email)) {
+              return {
+                ...s,
+                status: 'Active',
+                pauseStartDate: null,
+                pauseEndDate: null,
+                nextDelivery: 'Tomorrow, 07:30 AM'
+              };
+            }
+            return s;
+          });
+          localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdminSubs));
+        }
+      } catch (e) {}
+
+      window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+      window.dispatchEvent(new Event('shift24-orders-updated'));
+
       toast.success('Deliveries resumed! Your daily meal routine is active.');
     } catch (err: any) {
       toast.error('Failed to resume delivery');
@@ -305,6 +1046,42 @@ export function ProfilePage() {
         } catch (e) {}
       }
 
+      // Also purge non-delivered orders for paused subscription in local storage
+      try {
+        const rawAdminOrders = localStorage.getItem('shift24_admin_orders');
+        if (rawAdminOrders) {
+          const adminOrders = JSON.parse(rawAdminOrders);
+          const cleanId = String(pausingSub.id).replace(/^SUB-/, '');
+          const filteredOrders = adminOrders.filter((o: any) => {
+            if (o.status === 'Delivered') return true;
+            if (o.subscriptionId === pausingSub.id || (o.id && o.id.startsWith(`ORD-${cleanId}-`))) return false;
+            return true;
+          });
+          localStorage.setItem('shift24_admin_orders', JSON.stringify(filteredOrders));
+        }
+
+        const rawAdminSubs = localStorage.getItem('shift24_admin_subscriptions');
+        if (rawAdminSubs) {
+          const adminSubs = JSON.parse(rawAdminSubs);
+          const updatedAdminSubs = adminSubs.map((s: any) => {
+            if (s.id === pausingSub.id || s.subId === pausingSub.id) {
+              return {
+                ...s,
+                status: 'Paused',
+                pauseStartDate,
+                pauseEndDate: calculatedResumeDate || null,
+                nextDelivery: nextDeliveryText
+              };
+            }
+            return s;
+          });
+          localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdminSubs));
+        }
+
+        window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+        window.dispatchEvent(new Event('shift24-orders-updated'));
+      } catch (syncErr) {}
+
       toast.success(calculatedResumeDate 
         ? `Deliveries paused until ${new Date(calculatedResumeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}. Resume anytime!`
         : 'Deliveries paused. Resume anytime from your profile!'
@@ -325,129 +1102,293 @@ export function ProfilePage() {
     }
   };
 
-  // Manage Plan Edit States
-  const [manageTab, setManageTab] = useState<'schedule' | 'address' | 'dietary'>('schedule');
-  const [editDuration, setEditDuration] = useState('26 Days');
-  const [editMealsPerDay, setEditMealsPerDay] = useState('1');
-  const [editSlot, setEditSlot] = useState('breakfast');
-  const [editAddress, setEditAddress] = useState('');
-  const [editAllergies, setEditAllergies] = useState<string[]>([]);
-  const [editPreferences, setEditPreferences] = useState<string[]>([]);
-  const [isSavingPlan, setIsSavingPlan] = useState(false);
+  // Delivery Address Modal State (like Checkout page)
+  const [addressModalSub, setAddressModalSub] = useState<any | null>(null);
+  const [addressMode, setAddressMode] = useState<'saved' | 'new'>('saved');
+  const [selectedAddrIndex, setSelectedAddrIndex] = useState<number | null>(null);
+  const [showAddressMapPicker, setShowAddressMapPicker] = useState<boolean>(false);
+  const [addressMapCoords, setAddressMapCoords] = useState<{ lat: number; lng: number }>({
+    lat: 9.9312,
+    lng: 76.2673
+  });
+  const [manualAddressFields, setManualAddressFields] = useState({
+    flatNo: '',
+    street: '',
+    area: '',
+    landmark: '',
+    city: 'Kochi',
+    state: 'Kerala',
+    pincode: '',
+    tag: 'Home'
+  });
+  const [saveToAddresses, setSaveToAddresses] = useState(true);
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
 
-  const openManagePlan = (sub: any) => {
-    setManagingSub(sub);
-    setManageTab('schedule');
-
-    setEditDuration(sub.duration || '26 Days');
-
-    const mealsText = String(sub.meals || '');
-    if (mealsText.includes('3')) {
-      setEditMealsPerDay('3');
-      setEditSlot('all');
-    } else if (mealsText.includes('2')) {
-      setEditMealsPerDay('2');
-      if (mealsText.toLowerCase().includes('dinner') && mealsText.toLowerCase().includes('lunch')) {
-        setEditSlot('lunch-dinner');
-      } else if (mealsText.toLowerCase().includes('dinner')) {
-        setEditSlot('breakfast-dinner');
-      } else {
-        setEditSlot('breakfast-lunch');
-      }
-    } else {
-      setEditMealsPerDay('1');
-      if (mealsText.toLowerCase().includes('lunch')) setEditSlot('lunch');
-      else if (mealsText.toLowerCase().includes('dinner')) setEditSlot('dinner');
-      else setEditSlot('breakfast');
-    }
-
-    setEditAddress(sub.address || '');
-    setEditAllergies(Array.isArray(sub.allergies) ? [...sub.allergies] : [...allergies]);
-    setEditPreferences(Array.isArray(sub.preferences) ? [...sub.preferences] : [...preferences]);
+  const formatManualAddress = (fields: typeof manualAddressFields) => {
+    return [
+      fields.flatNo,
+      fields.street,
+      fields.area,
+      fields.landmark ? `(Near ${fields.landmark})` : null,
+      fields.city,
+      fields.state,
+      fields.pincode
+    ].filter(Boolean).join(', ');
   };
 
-  const handleSavePlanChanges = async () => {
-    if (!managingSub) return;
-    setIsSavingPlan(true);
-
-    let slotLabel = 'Breakfast (07:00 - 08:30 AM)';
-    if (editMealsPerDay === '3') {
-      slotLabel = 'Breakfast, Lunch & Dinner';
-    } else if (editMealsPerDay === '2') {
-      if (editSlot === 'breakfast-lunch') slotLabel = 'Breakfast & Lunch';
-      else if (editSlot === 'lunch-dinner') slotLabel = 'Lunch & Dinner';
-      else slotLabel = 'Breakfast & Dinner';
+  const openDeliveryAddressModal = (sub: any) => {
+    setAddressModalSub(sub);
+    setShowAddressMapPicker(false);
+    
+    // Check if sub address matches any saved address
+    const matchIdx = addresses.findIndex(a => a.address.trim().toLowerCase() === (sub.address || '').trim().toLowerCase());
+    if (matchIdx >= 0) {
+      setSelectedAddrIndex(matchIdx);
+      setAddressMode('saved');
+    } else if (addresses.length > 0) {
+      setSelectedAddrIndex(0);
+      setAddressMode('saved');
     } else {
-      if (editSlot === 'lunch') slotLabel = 'Lunch (12:00 - 01:30 PM)';
-      else if (editSlot === 'dinner') slotLabel = 'Dinner (07:00 - 08:30 PM)';
-      else slotLabel = 'Breakfast (07:00 - 08:30 AM)';
+      setSelectedAddrIndex(null);
+      setAddressMode('new');
     }
 
-    const payload = {
-      duration: editDuration,
-      durationDays: parseInt(editDuration) || 26,
-      mealsPerDay: editMealsPerDay,
-      slot: editSlot,
-      slotLabel,
-      address: editAddress.trim() || managingSub.address,
-      allergies: editAllergies,
-      preferences: editPreferences
-    };
+    setManualAddressFields({
+      flatNo: '',
+      street: sub.address || '',
+      area: '',
+      landmark: '',
+      city: 'Kochi',
+      state: 'Kerala',
+      pincode: '',
+      tag: 'Home'
+    });
+
+    if (sub.coordinates && typeof sub.coordinates.lat === 'number' && typeof sub.coordinates.lng === 'number') {
+      setAddressMapCoords({ lat: sub.coordinates.lat, lng: sub.coordinates.lng });
+    } else if (typeof sub.latitude === 'number' && typeof sub.longitude === 'number') {
+      setAddressMapCoords({ lat: sub.latitude, lng: sub.longitude });
+    } else if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setAddressMapCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      );
+    }
+  };
+
+  const handleAddressLocationPicked = (geo: GeocodedAddress, isSilent: boolean = false) => {
+    setAddressMapCoords({ lat: geo.lat, lng: geo.lng });
+    setManualAddressFields(prev => ({
+      ...prev,
+      street: geo.street || geo.displayName.split(',')[0] || prev.street,
+      area: geo.area || prev.area,
+      city: geo.city || prev.city || 'Kochi',
+      state: geo.state || prev.state || 'Kerala',
+      pincode: geo.pincode || prev.pincode
+    }));
+    if (!isSilent) {
+      toast.success('Location updated & address filled from map!', { id: 'location-picked-toast' });
+    }
+  };
+
+  const confirmDeleteAddress = (id: string) => {
+    toast.custom(
+      (t) => (
+        <div
+          className={`${
+            t.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95'
+          } transition-all duration-200 ease-out max-w-sm w-full bg-white shadow-2xl rounded-2xl pointer-events-auto p-4 border border-slate-200 ring-1 ring-black/5 flex flex-col gap-3`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 text-red-600 rounded-xl shrink-0">
+              <Trash2 className="w-5 h-5 text-red-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                Are you sure you want to delete this saved address?
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                This address will be removed from your saved list.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                toast.dismiss(t.id);
+                await handleDeleteAddress(id);
+                toast.success('Address removed from saved list');
+              }}
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm cursor-pointer"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ),
+      { id: `delete-addr-${id}`, duration: 8000 }
+    );
+  };
+
+  const confirmDeleteModalAddress = (id: string, idx: number) => {
+    toast.custom(
+      (t) => (
+        <div
+          className={`${
+            t.visible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95'
+          } transition-all duration-200 ease-out max-w-sm w-full bg-white shadow-2xl rounded-2xl pointer-events-auto p-4 border border-slate-200 ring-1 ring-black/5 flex flex-col gap-3`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 text-red-600 rounded-xl shrink-0">
+              <Trash2 className="w-5 h-5 text-red-600" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                Are you sure you want to delete this saved address?
+              </h4>
+              <p className="text-xs text-slate-500 mt-1">
+                This address will be removed from your saved list.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => toast.dismiss(t.id)}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                toast.dismiss(t.id);
+                await executeDeleteModalAddress(id, idx);
+              }}
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors shadow-sm cursor-pointer"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ),
+      { id: `delete-modal-addr-${id}`, duration: 8000 }
+    );
+  };
+
+  const executeDeleteModalAddress = async (id: string, idx: number) => {
+    await handleDeleteAddress(id);
+    toast.success('Address removed from saved list');
+
+    const nextAddrs = addresses.filter(a => a.id !== id);
+    if (nextAddrs.length === 0) {
+      setSelectedAddrIndex(null);
+      setAddressMode('new');
+    } else if (selectedAddrIndex === idx) {
+      setSelectedAddrIndex(0);
+    } else if (selectedAddrIndex !== null && selectedAddrIndex > idx) {
+      setSelectedAddrIndex(selectedAddrIndex - 1);
+    }
+  };
+
+  const handleSaveDeliveryAddress = async () => {
+    if (!addressModalSub) return;
+    setIsSavingAddress(true);
+
+    let finalAddress = '';
+    let addressTitle = 'Delivery Address';
+
+    if (addressMode === 'saved' && selectedAddrIndex !== null && addresses[selectedAddrIndex]) {
+      finalAddress = addresses[selectedAddrIndex].address;
+      addressTitle = addresses[selectedAddrIndex].title || 'Home';
+    } else {
+      finalAddress = formatManualAddress(manualAddressFields);
+      addressTitle = manualAddressFields.tag || 'Home';
+      if (!finalAddress.trim()) {
+        toast.error('Please enter a valid address.');
+        setIsSavingAddress(false);
+        return;
+      }
+    }
 
     try {
       const { updateBackendSubscriptionDetails } = await import('../../services/api');
-      await updateBackendSubscriptionDetails(managingSub.id, payload);
+      const coordsToSave = addressMapCoords && typeof addressMapCoords.lat === 'number' && typeof addressMapCoords.lng === 'number' ? addressMapCoords : undefined;
+      await updateBackendSubscriptionDetails(addressModalSub.id, { 
+        address: finalAddress,
+        coordinates: coordsToSave,
+        latitude: coordsToSave?.lat,
+        longitude: coordsToSave?.lng
+      });
 
-      const updatedMeals = `${editMealsPerDay} Meal${editMealsPerDay === '1' ? '' : 's'} (${slotLabel})`;
-
-      setSubscriptionsList(prev => prev.map(s => {
-        if (s.id === managingSub.id) {
-          return {
-            ...s,
-            duration: editDuration,
-            meals: updatedMeals,
-            address: payload.address,
-            allergies: editAllergies,
-            preferences: editPreferences
-          };
-        }
-        return s;
-      }));
-
-      setManagingSub(prev => prev ? {
-        ...prev,
-        duration: editDuration,
-        meals: updatedMeals,
-        address: payload.address,
-        allergies: editAllergies,
-        preferences: editPreferences
-      } : null);
-
-      setAllergies(editAllergies);
-      setPreferences(editPreferences);
+      setSubscriptionsList(prev => prev.map(s => s.id === addressModalSub.id ? { 
+        ...s, 
+        address: finalAddress,
+        coordinates: coordsToSave,
+        latitude: coordsToSave?.lat,
+        longitude: coordsToSave?.lng
+      } : s));
 
       const stored = localStorage.getItem('activeSubscription');
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-          if (parsed.id === managingSub.id || parsed.subId === managingSub.id || managingSub.id === 'sub_active') {
-            localStorage.setItem('activeSubscription', JSON.stringify({
-              ...parsed,
-              ...payload,
-              meals: updatedMeals
+          if (parsed.id === addressModalSub.id || parsed.subId === addressModalSub.id || addressModalSub.id === 'sub_active') {
+            localStorage.setItem('activeSubscription', JSON.stringify({ 
+              ...parsed, 
+              address: finalAddress,
+              coordinates: coordsToSave,
+              latitude: coordsToSave?.lat,
+              longitude: coordsToSave?.lng
             }));
           }
         } catch (e) {}
       }
 
-      toast.success('Subscription plan updated successfully!');
-      setManagingSub(null);
+      if (addressMode === 'new' && saveToAddresses) {
+        const exists = addresses.some(a => a.address.trim().toLowerCase() === finalAddress.trim().toLowerCase());
+        if (!exists) {
+          const newAddr = {
+            id: Date.now().toString(),
+            title: addressTitle,
+            address: finalAddress,
+            isDefault: addresses.length === 0
+          };
+          const updatedAddrs = [...addresses, newAddr];
+          setAddresses(updatedAddrs);
+          if (loggedInUser && localStorage.getItem('token')) {
+            try {
+              const { apiUpdateAddresses } = await import('../../services/api');
+              await apiUpdateAddresses(updatedAddrs.map(a => ({ title: a.title, address: a.address, isDefault: a.isDefault })));
+              const updatedUser = { ...loggedInUser, addresses: updatedAddrs };
+              localStorage.setItem('user', JSON.stringify(updatedUser));
+            } catch (err) {
+              console.warn('Failed to sync new address to user profile:', err);
+            }
+          }
+        }
+      }
+
+      toast.success('Delivery address updated successfully!');
+      setAddressModalSub(null);
     } catch (err: any) {
-      toast.error('Failed to update plan. Please try again.');
+      toast.error('Failed to update address. Please try again.');
     } finally {
-      setIsSavingPlan(false);
+      setIsSavingAddress(false);
     }
   };
+
 
   // Load subscriptions for logged-in user
   useEffect(() => {
@@ -459,7 +1400,18 @@ export function ProfilePage() {
       const storedSubRaw = localStorage.getItem('activeSubscription');
       let localSub: any = null;
       try {
-        if (storedSubRaw) localSub = JSON.parse(storedSubRaw);
+        if (storedSubRaw) {
+          localSub = JSON.parse(storedSubRaw);
+          if (localSub?.customerName || localSub?.customerPhone) {
+            setUserProfile(prev => ({
+              ...prev,
+              name: localSub.customerName || prev.name,
+              phone: localSub.customerPhone || prev.phone
+            }));
+            if (localSub.customerName) localStorage.setItem('userName', localSub.customerName);
+            if (localSub.customerPhone) localStorage.setItem('userPhone', localSub.customerPhone);
+          }
+        }
       } catch (e) {
         localSub = null;
       }
@@ -471,6 +1423,26 @@ export function ProfilePage() {
           const res = await fetchSubscriptions({ email: userEmail });
           if (res.success && Array.isArray(res.data)) {
             if (res.data.length > 0) {
+              const latestSub = res.data[0];
+              if (latestSub && (latestSub.customerName || latestSub.customerPhone)) {
+                setUserProfile(prev => ({
+                  ...prev,
+                  name: latestSub.customerName || prev.name,
+                  phone: latestSub.customerPhone || prev.phone
+                }));
+                if (latestSub.customerName) localStorage.setItem('userName', latestSub.customerName);
+                if (latestSub.customerPhone) localStorage.setItem('userPhone', latestSub.customerPhone);
+                try {
+                  const cur = localStorage.getItem('user');
+                  if (cur) {
+                    const parsed = JSON.parse(cur);
+                    if (latestSub.customerName) parsed.name = latestSub.customerName;
+                    if (latestSub.customerPhone) parsed.phone = latestSub.customerPhone;
+                    localStorage.setItem('user', JSON.stringify(parsed));
+                  }
+                } catch {}
+                window.dispatchEvent(new Event('auth-change'));
+              }
               const mapped = res.data.map((s: any) => ({
                 id: s.subId || s._id,
                 planName: s.planTitle || 'Healthy Meal Plan',
@@ -479,14 +1451,24 @@ export function ProfilePage() {
                 startDate: s.startDate || 'Recent',
                 endDate: s.endDate || 'Ongoing',
                 duration: s.duration || `${s.durationDays || 30} Days`,
+                durationDays: s.durationDays || 26,
                 meals: s.slotLabel ? `${s.mealsPerDay || 1} Meal (${s.slotLabel})` : 'Daily Meals',
                 address: s.address || 'Delivery Address',
                 pauseStartDate: s.pauseStartDate || null,
                 pauseEndDate: s.pauseEndDate || null,
                 allergies: s.allergies || [],
-                preferences: s.preferences || []
+                preferences: s.preferences || [],
+                skippedDates: s.skippedDates || [],
+                skippedMeals: s.skippedMeals || []
               }));
               setSubscriptionsList(mapped);
+
+              if (mapped[0]) {
+                if (Array.isArray(mapped[0].allergies) && mapped[0].allergies.length > 0) setAllergies(mapped[0].allergies);
+                if (Array.isArray(mapped[0].preferences) && mapped[0].preferences.length > 0) setPreferences(mapped[0].preferences);
+                if (Array.isArray(mapped[0].skippedDates) && mapped[0].skippedDates.length > 0) setSkippedDates(mapped[0].skippedDates);
+                if (Array.isArray((mapped[0] as any).skippedMeals) && (mapped[0] as any).skippedMeals.length > 0) setSkippedMeals((mapped[0] as any).skippedMeals);
+              }
 
               // Sync subscription addresses into addresses list
               setAddresses(prev => {
@@ -537,11 +1519,21 @@ export function ProfilePage() {
           startDate: localSub.startDate || 'Recent',
           endDate: localSub.endDate || 'Ongoing',
           duration: localSub.duration || '7 Days',
+          durationDays: localSub.durationDays || 26,
           meals: localSub.meals || '1 Meal Daily',
           address: subAddress,
           pauseStartDate: localSub.pauseStartDate || null,
-          pauseEndDate: localSub.pauseEndDate || null
+          pauseEndDate: localSub.pauseEndDate || null,
+          allergies: localSub.allergies || [],
+          preferences: localSub.preferences || [],
+          skippedDates: localSub.skippedDates || [],
+          skippedMeals: localSub.skippedMeals || []
         }]);
+
+        if (Array.isArray(localSub.allergies) && localSub.allergies.length > 0) setAllergies(localSub.allergies);
+        if (Array.isArray(localSub.preferences) && localSub.preferences.length > 0) setPreferences(localSub.preferences);
+        if (Array.isArray(localSub.skippedDates) && localSub.skippedDates.length > 0) setSkippedDates(localSub.skippedDates);
+        if (Array.isArray(localSub.skippedMeals) && localSub.skippedMeals.length > 0) setSkippedMeals(localSub.skippedMeals);
 
         if (localSub.address && !localSub.address.includes('123 Health Street') && !localSub.address.includes('123 Main St')) {
           setAddresses(prev => {
@@ -609,10 +1601,10 @@ export function ProfilePage() {
              {/* User Info Card */}
              <div className="bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl shadow-sm border border-slate-200 flex items-center gap-4">
                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center text-2xl text-emerald-600 font-bold uppercase shrink-0">
-                 {userName.charAt(0)}
+                 {displayName.charAt(0)}
                </div>
                <div className="overflow-hidden">
-                 <h2 className="text-lg font-bold text-slate-900 truncate">{userName}</h2>
+                 <h2 className="text-lg font-bold text-slate-900 truncate">{displayName}</h2>
                  <p className="text-slate-500 text-sm truncate">Subscribed Member</p>
                </div>
              </div>
@@ -756,118 +1748,113 @@ export function ProfilePage() {
                                       <p className="text-slate-800 font-medium">{sub.meals}</p>
                                     </div>
                                     <div>
-                                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Delivery Address</p>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Delivery Address</p>
+                                        {sub.status !== 'Cancelled' && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openDeliveryAddressModal(sub);
+                                            }}
+                                            className="text-xs text-emerald-600 font-bold hover:text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                                          >
+                                            <Edit2 className="w-3 h-3" />
+                                            <span>Change</span>
+                                          </button>
+                                        )}
+                                      </div>
                                       <p className="text-slate-800 font-medium">{sub.address}</p>
                                     </div>
                                   </div>
 
                                   <div className="mt-8 pt-6 border-t border-slate-100">
-                                    <div className="flex items-center justify-between mb-4">
-                                      <h3 className="text-sm font-bold text-slate-800">Dietary Requirements</h3>
-                                      <button 
-                                        onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          setIsEditingDiet(!isEditingDiet); 
-                                        }}
-                                        className="text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 p-2 rounded-md transition-colors shadow-sm"
-                                      >
-                                        {isEditingDiet ? <Check className="w-5 h-5" /> : <Edit2 className="w-5 h-5" />}
-                                      </button>
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-4">
+                                      <div>
+                                        <h3 className="text-sm font-bold text-slate-800">Dietary Requirements</h3>
+                                        <p className="text-xs text-emerald-600 font-medium mt-0.5">Tap any ingredient to add or exclude from your daily meals.</p>
+                                      </div>
                                     </div>
 
-                                    {isEditingDiet ? (
-                                      <div className="space-y-6 animate-in fade-in">
-                                        <div>
-                                          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Food Allergies</label>
-                                          <div className="flex flex-wrap gap-2">
-                                            {commonIngredients.map(item => {
-                                              const isSelected = allergies.includes(item);
-                                              return (
-                                                <button
-                                                  key={`allergy-${item}`}
-                                                  type="button"
-                                                  onClick={(e) => { e.stopPropagation(); toggleProfileSelection('allergies', item); }}
-                                                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${isSelected ? 'bg-red-50 text-red-600 border-red-200 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                                                >
-                                                  {item}
-                                                </button>
-                                              );
-                                            })}
-                                          </div>
+                                    <div className="space-y-6">
+                                      <div>
+                                        <div className="flex items-center justify-between mb-2.5">
+                                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                            Food Allergies
+                                          </label>
+                                          <span className="text-[11px] text-slate-400 font-medium">Excluded from meals</span>
                                         </div>
-                                        <div>
-                                          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Special Preferences</label>
-                                          <div className="flex flex-wrap gap-2">
-                                            {commonIngredients.map(item => {
-                                              const isSelected = preferences.includes(item);
-                                              return (
-                                                <button
-                                                  key={`pref-${item}`}
-                                                  type="button"
-                                                  onClick={(e) => { e.stopPropagation(); toggleProfileSelection('preferences', item); }}
-                                                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${isSelected ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                                                >
-                                                  {item}
-                                                </button>
-                                              );
-                                            })}
-                                          </div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {commonIngredients.map(item => {
+                                            const subAllergies = sub.allergies || allergies;
+                                            const isSelected = subAllergies.includes(item);
+                                            return (
+                                              <button
+                                                key={`allergy-${item}`}
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); toggleProfileSelection('allergies', item, sub); }}
+                                                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border cursor-pointer ${
+                                                  isSelected 
+                                                    ? 'bg-red-50 text-red-600 border-red-300 shadow-xs font-bold ring-1 ring-red-400' 
+                                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                                }`}
+                                              >
+                                                {isSelected ? '✕ ' : '+ '}{item}
+                                              </button>
+                                            );
+                                          })}
                                         </div>
                                       </div>
-                                    ) : (
-                                      <div className="space-y-5 animate-in fade-in">
-                                        <div>
-                                          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Food Allergies</label>
-                                          {allergies.length > 0 ? (
-                                            <div className="flex flex-wrap gap-2">
-                                              {allergies.map(item => (
-                                                <span key={`readonly-allergy-${item}`} className="px-3 py-1.5 rounded-full text-xs font-bold bg-red-50 text-red-600 border border-red-200 shadow-sm">
-                                                  {item}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <p className="text-sm text-slate-500 font-medium">None selected</p>
-                                          )}
+
+                                      <div>
+                                        <div className="flex items-center justify-between mb-2.5">
+                                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                            Special Preferences
+                                          </label>
+                                          <span className="text-[11px] text-slate-400 font-medium">Included / prioritized</span>
                                         </div>
-                                        <div>
-                                          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Special Preferences</label>
-                                          {preferences.length > 0 ? (
-                                            <div className="flex flex-wrap gap-2">
-                                              {preferences.map(item => (
-                                                <span key={`readonly-pref-${item}`} className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-sm">
-                                                  {item}
-                                                </span>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <p className="text-sm text-slate-500 font-medium">None selected</p>
-                                          )}
+                                        <div className="flex flex-wrap gap-2">
+                                          {commonIngredients.map(item => {
+                                            const subPreferences = sub.preferences || preferences;
+                                            const isSelected = subPreferences.includes(item);
+                                            return (
+                                              <button
+                                                key={`pref-${item}`}
+                                                type="button"
+                                                onClick={(e) => { e.stopPropagation(); toggleProfileSelection('preferences', item, sub); }}
+                                                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border cursor-pointer ${
+                                                  isSelected 
+                                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-xs font-bold ring-1 ring-emerald-400' 
+                                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                                }`}
+                                              >
+                                                {isSelected ? '✓ ' : '+ '}{item}
+                                              </button>
+                                            );
+                                          })}
                                         </div>
                                       </div>
-                                    )}
+                                    </div>
                                   </div>
 
                                   <div className="mt-8 pt-6 border-t border-slate-100">
-                                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-                                      <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-600">
-                                           <CalendarIcon className="w-5 h-5" />
-                                        </div>
-                                        <div>
-                                          <h3 className="text-sm font-bold text-slate-800">Manage Deliveries</h3>
-                                          <p className="text-xs text-emerald-600 font-medium mt-1">Tap any future date to skip or unskip delivery.</p>
-                                        </div>
+                                    <div className="flex items-center gap-3 mb-4">
+                                      <div className="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-slate-600">
+                                         <CalendarIcon className="w-5 h-5" />
+                                      </div>
+                                      <div>
+                                        <h3 className="text-sm font-bold text-slate-800">Manage Deliveries</h3>
+                                        <p className="text-xs text-emerald-600 font-medium mt-1">Tap any future date to skip individual meals (Breakfast, Lunch, Dinner) or full days.</p>
                                       </div>
                                     </div>
                                     
                                     <div className="bg-slate-50/50 rounded-2xl p-4 md:p-6 border border-slate-200">
                                       <div className="flex items-center justify-between mb-6 px-2">
-                                        <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}}>
+                                        <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}}>
                                           <ChevronLeft className="w-5 h-5 text-slate-600" />
                                         </button>
                                         <span className="font-bold text-slate-800 text-lg">{monthName}</span>
-                                        <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}}>
+                                        <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}}>
                                           <ChevronRight className="w-5 h-5 text-slate-600" />
                                         </button>
                                       </div>
@@ -884,18 +1871,24 @@ export function ProfilePage() {
                                           const day = i + 1;
                                           const year = currentMonth.getFullYear();
                                           const month = currentMonth.getMonth();
-                                          const dateStr = `${year}-${month}-${day}`;
+                                          const mPadded = String(month + 1).padStart(2, '0');
+                                          const dPadded = String(day).padStart(2, '0');
+                                          const dateStr = `${year}-${mPadded}-${dPadded}`;
                                           const clickedDate = new Date(year, month, day);
                                           const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
                                           
                                           const isPast = clickedDate < todayDateOnly;
-                                          const isSkipped = skippedDates.includes(dateStr);
+                                          const skipStatus = getDateSkipStatus(dateStr, sub);
+                                          const isFullSkipped = skipStatus === 'all';
+                                          const isPartialSkipped = skipStatus === 'partial';
                                           const isActive = activeDates.has(dateStr);
-                                          const isEditable = !isPast && (isActive || isSkipped);
+                                          const isEditable = !isPast && (isActive || isFullSkipped || isPartialSkipped);
                                           
                                           let dayClass = 'bg-white text-slate-400 border-slate-100 opacity-50';
-                                          if (isSkipped) {
-                                            dayClass = 'bg-red-50 text-red-600 border border-red-200 font-bold';
+                                          if (isFullSkipped) {
+                                            dayClass = 'bg-rose-50 text-rose-700 border-2 border-rose-300 font-bold shadow-xs';
+                                          } else if (isPartialSkipped) {
+                                            dayClass = 'bg-amber-50 text-amber-900 border-2 border-amber-400 font-bold shadow-xs';
                                           } else if (isActive) {
                                             if (isPast) {
                                               dayClass = 'bg-emerald-50 text-emerald-600 border border-emerald-200 font-bold';
@@ -911,17 +1904,40 @@ export function ProfilePage() {
                                               key={day}
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                if (isEditable) handleDayClick(year, month, day);
+                                                if (isEditable) openMealSkipModal(clickedDate, dateStr, sub);
                                               }}
-                                              className={`p-2 md:p-3 rounded-xl border text-sm flex items-center justify-center transition-all duration-300 ${dayClass} ${isEditable ? 'cursor-pointer hover:scale-105 hover:shadow-md' : ''}`}
+                                              className={`p-1.5 md:p-2 rounded-xl border text-sm flex flex-col items-center justify-center transition-all duration-300 min-h-[44px] md:min-h-[50px] relative ${dayClass} ${isEditable ? 'cursor-pointer hover:scale-105 hover:shadow-md' : ''}`}
+                                              title={isFullSkipped ? 'All meals skipped' : isPartialSkipped ? 'Specific meal(s) skipped' : 'Tap to manage meals'}
                                             >
-                                              {day}
+                                              <span className="font-bold text-xs md:text-sm">{day}</span>
+                                              {isFullSkipped && (
+                                                <span className="text-[9px] font-black uppercase text-rose-600 leading-none mt-0.5">Skip</span>
+                                              )}
+                                              {isPartialSkipped && (
+                                                <span className="text-[8px] font-black uppercase text-amber-800 leading-none mt-0.5 bg-amber-200/60 px-1 py-0.2 rounded">Meal</span>
+                                              )}
                                             </div>
-                                          )
+                                          );
                                         })}
                                       </div>
 
                                       <div className="mt-8 p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                                        {/* Calendar Skip Status Legend */}
+                                        <div className="mb-4 pb-4 border-b border-slate-200/80 flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-slate-600">
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="w-3.5 h-3.5 rounded-md bg-emerald-500 border border-emerald-600"></div>
+                                            <span>All Meals Active</span>
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="w-3.5 h-3.5 rounded-md bg-amber-50 border-2 border-amber-400"></div>
+                                            <span>Specific Meal(s) Skipped</span>
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="w-3.5 h-3.5 rounded-md bg-rose-50 border-2 border-rose-300"></div>
+                                            <span>Full Day Skipped</span>
+                                          </div>
+                                        </div>
+
                                         <div className="flex justify-between items-center mb-3">
                                           <span className="text-slate-600 text-sm font-medium">Start Date:</span>
                                           <span className="text-slate-900 font-bold text-sm">{startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
@@ -949,27 +1965,15 @@ export function ProfilePage() {
                                     </div>
                                   </div>
 
-                                  <div className="flex flex-wrap gap-3 mt-8">
-                                    <button 
-                                      type="button"
-                                      onClick={(e) => { 
-                                        e.stopPropagation(); 
-                                        openManagePlan(sub); 
-                                      }}
-                                      className="px-5 py-2.5 bg-emerald-50 text-emerald-700 font-bold rounded-xl hover:bg-emerald-100 transition-colors flex items-center gap-2 text-sm shadow-xs"
-                                    >
-                                      <Settings className="w-4 h-4" />
-                                      <span>Manage Plan</span>
-                                    </button>
-
-                                    {sub.status !== 'Cancelled' && (
+                                  {sub.status !== 'Cancelled' && (
+                                    <div className="flex flex-wrap gap-3 mt-8">
                                       <button 
                                         type="button"
                                         onClick={(e) => { 
                                           e.stopPropagation(); 
                                           handleTogglePause(sub); 
                                         }}
-                                        className={`px-5 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm shadow-xs ${
+                                        className={`px-5 py-2.5 font-bold rounded-xl transition-all flex items-center gap-2 text-sm shadow-xs cursor-pointer ${
                                           sub.status === 'Paused'
                                             ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                                             : 'bg-slate-50 text-slate-700 border border-slate-200 hover:bg-slate-100'
@@ -987,8 +1991,8 @@ export function ProfilePage() {
                                           </>
                                         )}
                                       </button>
-                                    )}
-                                  </div>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1080,8 +2084,9 @@ export function ProfilePage() {
                      <h2 className="text-2xl font-bold text-slate-900 hidden lg:block">Saved Addresses</h2>
                      {!isAddingAddress && !editingAddressId && (
                        <button 
-                         onClick={() => { setIsAddingAddress(true); setAddressForm({ title: '', address: '', isDefault: false }); }}
-                         className="text-emerald-600 font-semibold hover:text-emerald-700 text-sm bg-emerald-50 px-4 py-2 rounded-full"
+                         type="button"
+                         onClick={handleStartAddNewAddress}
+                         className="text-emerald-600 font-semibold hover:text-emerald-700 text-sm bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-full transition-colors cursor-pointer"
                        >
                          + Add New
                        </button>
@@ -1089,43 +2094,247 @@ export function ProfilePage() {
                    </div>
 
                    {(isAddingAddress || editingAddressId) ? (
-                     <div className="border border-slate-200 rounded-2xl p-6 bg-white shadow-sm mb-6">
-                       <h3 className="font-bold text-slate-900 mb-4">{editingAddressId ? 'Edit Address' : 'Add New Address'}</h3>
+                     <div className="border border-slate-200 rounded-3xl p-6 sm:p-7 bg-white shadow-sm mb-6 space-y-5 animate-in fade-in duration-300">
+                       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                         <div>
+                           <h3 className="font-extrabold text-slate-900 text-lg">
+                             {editingAddressId ? 'Edit Address' : 'Add New Address'}
+                           </h3>
+                           <p className="text-xs text-slate-500 mt-0.5">
+                             Pinpoint on the map or enter your address details below
+                           </p>
+                         </div>
+                         <button
+                           type="button"
+                           onClick={() => { setIsAddingAddress(false); setEditingAddressId(null); setShowSavedTabMapPicker(false); }}
+                           className="text-xs font-bold text-slate-400 hover:text-slate-700 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                         >
+                           <X className="w-4 h-4" />
+                         </button>
+                       </div>
+
+                       {/* Google Maps & GPS Section */}
+                       {!showSavedTabMapPicker ? (
+                         <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl">
+                           <div className="flex items-center gap-3">
+                             <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                               <MapPin className="w-5 h-5" />
+                             </div>
+                             <div>
+                               <p className="text-xs font-bold text-emerald-950">Delivery Location & GPS</p>
+                               <p className="text-[11px] text-emerald-700">Search place, use GPS or pinpoint your exact delivery entrance</p>
+                             </div>
+                           </div>
+
+                           <button
+                             type="button"
+                             onClick={() => setShowSavedTabMapPicker(true)}
+                             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+                           >
+                             <Compass className="w-4 h-4" />
+                             Choose on Map
+                           </button>
+                         </div>
+                       ) : (
+                         <div className="space-y-2 animate-in fade-in zoom-in-95 duration-200">
+                           <div className="flex items-center justify-between px-1">
+                             <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                               <Compass className="w-4 h-4 text-emerald-600" />
+                               Pinpoint on Map or Search Place
+                             </span>
+                             <button
+                               type="button"
+                               onClick={() => setShowSavedTabMapPicker(false)}
+                               className="text-xs font-bold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer flex items-center gap-1"
+                             >
+                               <X className="w-3.5 h-3.5" />
+                               Close Map
+                             </button>
+                           </div>
+                           <LocationMapPicker
+                             initialLat={savedTabMapCoords.lat}
+                             initialLng={savedTabMapCoords.lng}
+                             onLocationSelect={handleSavedTabLocationPicked}
+                             onClose={() => {
+                               setShowSavedTabMapPicker(false);
+                               toast.success('Location confirmed from map!', { id: 'saved-tab-location-toast' });
+                             }}
+                           />
+                         </div>
+                       )}
+
+                       {/* Structured manual address fields */}
                        <div className="space-y-4">
-                         <div>
-                           <label className="block text-sm font-semibold text-slate-700 mb-2">Address Title (e.g., Home, Work)</label>
-                           <input type="text" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white transition-colors" value={addressForm.title} onChange={e => setAddressForm({...addressForm, title: e.target.value})} />
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               Flat / House / Door No. <span className="text-red-500">*</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. Flat 402, 4th Floor"
+                               value={savedTabAddressFields.flatNo}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, flatNo: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               Building / Street / Society <span className="text-red-500">*</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. Green Meadows, 12th Main"
+                               value={savedTabAddressFields.street}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, street: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
                          </div>
-                         <div>
-                           <label className="block text-sm font-semibold text-slate-700 mb-2">Full Address</label>
-                           <textarea className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white transition-colors min-h-[100px]" value={addressForm.address} onChange={e => setAddressForm({...addressForm, address: e.target.value})}></textarea>
+
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               Area / Locality / Neighborhood <span className="text-red-500">*</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. Panampilly Nagar"
+                               value={savedTabAddressFields.area}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, area: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               Landmark <span className="text-slate-400 font-normal lowercase">(optional)</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. Near Metro Station / Park"
+                               value={savedTabAddressFields.landmark}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, landmark: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
                          </div>
-                          <div
-                            onClick={() => setAddressForm({ ...addressForm, isDefault: !addressForm.isDefault })}
-                            className={`inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border cursor-pointer select-none transition-all ${
-                              addressForm.isDefault
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-900 ring-1 ring-emerald-500/20 shadow-xs'
-                                : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={addressForm.isDefault}
-                              onChange={(e) => setAddressForm({...addressForm, isDefault: e.target.checked})}
-                              className="sr-only"
-                            />
-                            <div className={`w-4 h-4 rounded-md flex items-center justify-center transition-all ${
-                              addressForm.isDefault ? 'bg-emerald-600 text-white shadow-xs' : 'border-2 border-slate-300 bg-white'
-                            }`}>
-                              {addressForm.isDefault && <Check className="w-3 h-3 stroke-[3]" />}
-                            </div>
-                            <span className="text-sm font-semibold">Set as default address</span>
-                          </div>
+
+                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               City / Town <span className="text-red-500">*</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. Kochi"
+                               value={savedTabAddressFields.city}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, city: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               State <span className="text-red-500">*</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. Kerala"
+                               value={savedTabAddressFields.state}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, state: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
+                           <div>
+                             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                               Pincode <span className="text-red-500">*</span>
+                             </label>
+                             <input
+                               type="text"
+                               placeholder="e.g. 682036"
+                               value={savedTabAddressFields.pincode}
+                               onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, pincode: e.target.value }))}
+                               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-sm"
+                             />
+                           </div>
+                         </div>
+
+                         {/* Address Tag Selector */}
+                         <div>
+                           <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                             Save Address Label As
+                           </label>
+                           <div className="flex gap-2.5">
+                             {[
+                               { id: 'Home', icon: Home, label: 'Home' },
+                               { id: 'Work', icon: Briefcase, label: 'Work' },
+                               { id: 'Other', icon: Building, label: 'Other' },
+                             ].map((t) => {
+                               const IconComp = t.icon;
+                               const isSel = savedTabAddressFields.tag === t.id;
+                               return (
+                                 <button
+                                   key={t.id}
+                                   type="button"
+                                   onClick={() => setSavedTabAddressFields(prev => ({ ...prev, tag: t.id }))}
+                                   className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                     isSel
+                                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                   }`}
+                                 >
+                                   <IconComp className="w-3.5 h-3.5" />
+                                   {t.label}
+                                 </button>
+                               );
+                             })}
+                           </div>
+                         </div>
+
+                         {/* Formatted Address Summary / Preview */}
+                         {formatSavedTabAddress(savedTabAddressFields) && (
+                           <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600">
+                             <span className="font-bold text-slate-900 block mb-0.5">Address Preview:</span>
+                             <p className="text-slate-600 leading-relaxed">{formatSavedTabAddress(savedTabAddressFields)}</p>
+                           </div>
+                         )}
+
+                         {/* Set as default checkbox */}
+                         <div
+                           onClick={() => setSavedTabAddressFields(prev => ({ ...prev, isDefault: !prev.isDefault }))}
+                           className={`inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border cursor-pointer select-none transition-all ${
+                             savedTabAddressFields.isDefault
+                               ? 'bg-emerald-50 border-emerald-300 text-emerald-900 ring-1 ring-emerald-500/20 shadow-2xs'
+                               : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-200 hover:bg-slate-50'
+                           }`}
+                         >
+                           <input
+                             type="checkbox"
+                             checked={savedTabAddressFields.isDefault}
+                             onChange={(e) => setSavedTabAddressFields(prev => ({ ...prev, isDefault: e.target.checked }))}
+                             className="sr-only"
+                           />
+                           <div className={`w-4 h-4 rounded-md flex items-center justify-center transition-all ${
+                             savedTabAddressFields.isDefault ? 'bg-emerald-600 text-white shadow-2xs' : 'border-2 border-slate-300 bg-white'
+                           }`}>
+                             {savedTabAddressFields.isDefault && <Check className="w-3 h-3 stroke-[3]" />}
+                           </div>
+                           <span className="text-sm font-semibold">Set as default address</span>
+                         </div>
+
+                         {/* Actions */}
                          <div className="flex gap-3 pt-2">
-                           <button onClick={handleSaveAddress} className="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors">
+                           <button
+                             type="button"
+                             onClick={handleSaveAddress}
+                             className="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+                           >
                              Save Address
                            </button>
-                           <button onClick={() => { setIsAddingAddress(false); setEditingAddressId(null); }} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">
+                           <button
+                             type="button"
+                             onClick={() => { setIsAddingAddress(false); setEditingAddressId(null); setShowSavedTabMapPicker(false); }}
+                             className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
+                           >
                              Cancel
                            </button>
                          </div>
@@ -1134,8 +2343,16 @@ export function ProfilePage() {
                    ) : (
                      <div className="space-y-4">
                        {addresses.length === 0 ? (
-                         <div className="text-center py-8 bg-slate-50 rounded-2xl border border-slate-200">
-                           <p className="text-slate-500">No addresses saved yet.</p>
+                         <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                           <MapPin className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                           <p className="text-slate-500 text-sm font-medium">No saved addresses yet.</p>
+                           <button
+                             type="button"
+                             onClick={handleStartAddNewAddress}
+                             className="mt-3 px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl hover:bg-emerald-700 transition-colors cursor-pointer"
+                           >
+                             + Add Your First Address
+                           </button>
                          </div>
                        ) : (
                          addresses.map(addr => (
@@ -1148,7 +2365,7 @@ export function ProfilePage() {
                              
                              <div className="ml-6 flex gap-2 pt-4 border-t border-slate-200/60">
                                <button onClick={() => handleEditAddress(addr.id)} className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 p-2 rounded-lg transition-colors" title="Edit Address"><Edit2 className="w-4 h-4" /></button>
-                               <button onClick={() => handleDeleteAddress(addr.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors" title="Delete Address"><Trash2 className="w-4 h-4" /></button>
+                               <button onClick={() => confirmDeleteAddress(addr.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors cursor-pointer" title="Delete Address"><Trash2 className="w-4 h-4 text-red-500" /></button>
                              </div>
                            </div>
                          ))
@@ -1191,62 +2408,167 @@ export function ProfilePage() {
                )}
 
                {activeTab === 'settings' && (
-                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                   <h2 className="text-2xl font-bold text-slate-900 mb-6 hidden lg:block">Account Settings</h2>
-                   
-                   <div className="bg-white p-6 border border-slate-200 rounded-2xl shadow-sm mb-6">
-                     <h3 className="font-bold text-slate-900 mb-4 text-lg">Profile Information</h3>
-                     <form className="space-y-4 max-w-lg">
-                       <div>
-                         <label className="block text-sm font-semibold text-slate-700 mb-1">Full Name</label>
-                         <input type="text" defaultValue="Alex Doe" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-slate-50 focus:bg-white" />
-                       </div>
-                       <div>
-                         <label className="block text-sm font-semibold text-slate-700 mb-1">Email Address</label>
-                         <input type="email" defaultValue="alex@example.com" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-slate-50 focus:bg-white" />
-                       </div>
-                       <button type="button" onClick={(e) => {
-                         e.preventDefault();
-                         import('react-hot-toast').then(m => m.toast.success('Profile updated successfully!'));
-                       }} className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-sm text-sm">
-                         Save Changes
-                       </button>
-                     </form>
-                   </div>
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <h2 className="text-2xl font-bold text-slate-900 mb-6 hidden lg:block">Account Settings</h2>
+                    
+                    {/* Profile Information Form */}
+                    <div className="bg-white p-6 sm:p-7 border border-slate-200 rounded-3xl shadow-xs mb-6">
+                      <div className="mb-5">
+                        <h3 className="font-extrabold text-slate-900 text-lg">Profile Information</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Update your personal account details</p>
+                      </div>
 
-                   <div className="bg-white p-6 border border-slate-200 rounded-2xl shadow-sm mb-8">
-                     <h3 className="font-bold text-slate-900 mb-4 text-lg">Change Password</h3>
-                     <form className="space-y-4 max-w-lg">
-                       <div>
-                         <label className="block text-sm font-semibold text-slate-700 mb-1">Current Password</label>
-                         <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-slate-50 focus:bg-white" />
-                       </div>
-                       <div>
-                         <label className="block text-sm font-semibold text-slate-700 mb-1">New Password</label>
-                         <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-slate-50 focus:bg-white" />
-                       </div>
-                       <div>
-                         <label className="block text-sm font-semibold text-slate-700 mb-1">Confirm New Password</label>
-                         <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-slate-50 focus:bg-white" />
-                       </div>
-                       <button type="button" onClick={(e) => {
-                         e.preventDefault();
-                         import('react-hot-toast').then(m => m.toast.success('Password changed successfully!'));
-                       }} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-slate-900 transition-colors shadow-sm text-sm">
-                         Update Password
-                       </button>
-                     </form>
-                   </div>
+                      <form onSubmit={handleSaveProfile} className="space-y-4 max-w-lg">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Full Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={userProfile.name}
+                            onChange={(e) => setUserProfile(prev => ({ ...prev, name: e.target.value }))}
+                            placeholder="Enter your name"
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-colors"
+                          />
+                        </div>
 
-                   <div className="p-6 border border-red-200 bg-red-50 rounded-2xl">
-                     <h3 className="font-bold text-red-900 mb-2 flex items-center gap-2"><Trash2 className="w-5 h-5" /> Danger Zone</h3>
-                     <p className="text-red-700 text-sm mb-6 max-w-lg">Once you delete your account, there is no going back. All your subscriptions, history, and preferences will be permanently wiped.</p>
-                     <button className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-colors shadow-sm">
-                       Delete Account
-                     </button>
-                   </div>
-                 </div>
-               )}
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Email Address
+                          </label>
+                          <input
+                            type="email"
+                            value={userProfile.email}
+                            disabled
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm bg-slate-100 text-slate-500 cursor-not-allowed select-none"
+                            title="Email address is linked to your login and cannot be modified directly"
+                          />
+                          <p className="text-[11px] text-slate-400 mt-1">Email address is linked to your account.</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Phone Number
+                          </label>
+                          <input
+                            type="tel"
+                            value={userProfile.phone}
+                            onChange={(e) => setUserProfile(prev => ({ ...prev, phone: e.target.value }))}
+                            placeholder="e.g. +91 9876543210"
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-colors"
+                          />
+                        </div>
+
+                        <div className="pt-2">
+                          <button
+                            type="submit"
+                            disabled={isUpdatingProfile}
+                            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-xs text-sm cursor-pointer flex items-center gap-2"
+                          >
+                            {isUpdatingProfile ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              'Save Changes'
+                            )}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    {/* Change Password Form */}
+                    <div className="bg-white p-6 sm:p-7 border border-slate-200 rounded-3xl shadow-xs">
+                      <div className="mb-5">
+                        <h3 className="font-extrabold text-slate-900 text-lg">Change Password</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Ensure your account is using a secure password</p>
+                      </div>
+
+                      <form onSubmit={handleChangePassword} className="space-y-4 max-w-lg">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Current Password <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="••••••••"
+                            value={passwordForm.currentPassword}
+                            onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-colors"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            New Password <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="At least 6 characters"
+                            value={passwordForm.newPassword}
+                            onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-colors"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                            Confirm New Password <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="password"
+                            placeholder="Confirm your new password"
+                            value={passwordForm.confirmPassword}
+                            onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                            required
+                            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-colors"
+                          />
+                        </div>
+                        <div className="pt-2 flex items-center gap-3 flex-wrap">
+                          <button
+                            type="submit"
+                            disabled={isUpdatingPassword}
+                            className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-xs text-sm cursor-pointer flex items-center gap-2"
+                          >
+                            {isUpdatingPassword ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Updating...
+                              </>
+                            ) : (
+                              'Update Password'
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowForgotPasswordModal(true)}
+                            className="bg-emerald-50 hover:bg-emerald-100/80 text-emerald-700 border border-emerald-200/80 px-5 py-2.5 rounded-xl font-bold transition-all text-sm cursor-pointer flex items-center gap-2 shadow-2xs"
+                          >
+                            <Mail className="w-4 h-4 text-emerald-600" />
+                            Forgot Password?
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    {/* Forgot Password Modal */}
+                    <ForgotPasswordModal
+                      isOpen={showForgotPasswordModal}
+                      onClose={() => setShowForgotPasswordModal(false)}
+                      defaultEmail={userProfile.email || loggedInUser?.email || localStorage.getItem('userEmail') || ''}
+                      onSuccess={() => {
+                        setPasswordForm({
+                          currentPassword: '',
+                          newPassword: '',
+                          confirmPassword: '',
+                        });
+                      }}
+                    />
+                  </div>
+                               )}
 
              </div>
            </div>
@@ -1309,340 +2631,517 @@ export function ProfilePage() {
         </div>
       )}
 
-      {/* Manage Plan Modal */}
-      {managingSub && (
+      {/* Delivery Address Modal (Search via Map/GPS or Enter Manually like Checkout page) */}
+      {addressModalSub && (
         <div className="fixed inset-0 bg-slate-900/60 z-[999] flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white max-w-xl w-full rounded-3xl shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-            {/* Header */}
+            
+            {/* Modal Header */}
             <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-start shrink-0">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                    managingSub.status === 'Paused'
-                      ? 'bg-amber-400 text-slate-950'
-                      : managingSub.status === 'Cancelled'
-                      ? 'bg-rose-500 text-white'
-                      : 'bg-emerald-400 text-slate-950'
-                  }`}>
-                    {managingSub.status}
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-400 text-slate-950">
+                    Delivery Address
                   </span>
-                  <span className="text-slate-400 text-xs font-semibold">ID: {managingSub.id}</span>
+                  <span className="text-slate-400 text-xs font-semibold">ID: {addressModalSub.id}</span>
                 </div>
-                <h3 className="text-xl font-black tracking-tight">{managingSub.planName}</h3>
+                <h3 className="text-xl font-black tracking-tight">Change Delivery Address</h3>
+                <p className="text-slate-400 text-xs mt-0.5">{addressModalSub.planName}</p>
               </div>
               <button
                 type="button"
-                onClick={() => setManagingSub(null)}
+                onClick={() => setAddressModalSub(null)}
                 className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Navigation Tabs */}
-            <div className="flex border-b border-slate-200 px-4 sm:px-6 bg-slate-50 overflow-x-auto gap-1.5 py-2 shrink-0">
-              <button 
-                type="button" 
-                onClick={() => setManageTab('schedule')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'schedule' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+            {/* Mode Toggle (Saved Addresses vs New Address) */}
+            <div className="px-5 sm:px-6 pt-4 pb-2 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50/60 shrink-0">
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                {addressMode === 'saved' ? `Saved Addresses (${addresses.length})` : 'Enter or Search Address'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (addressMode === 'new') {
+                    if (addresses.length > 0) setAddressMode('saved');
+                  } else {
+                    setAddressMode('new');
+                  }
+                }}
+                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-white border border-emerald-200 hover:bg-emerald-50 px-3 py-1.5 rounded-xl transition-all inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
               >
-                Duration & Meals
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setManageTab('address')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'address' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
-              >
-                Delivery Address
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setManageTab('dietary')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${manageTab === 'dietary' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
-              >
-                Dietary & Allergies
+                {addressMode === 'new' ? (
+                  addresses.length > 0 ? <>Use Saved Address ({addresses.length})</> : null
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5" /> Enter New Address
+                  </>
+                )}
               </button>
             </div>
 
-            {/* Tab Content (Scrollable) */}
-            <div className="p-5 sm:p-6 space-y-6 overflow-y-auto flex-1">
-              {manageTab === 'schedule' && (
-                <div className="space-y-6 animate-in fade-in">
-                  {/* Duration Updation */}
-                  <div>
-                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
-                      Plan Duration
-                    </label>
-                    <p className="text-xs text-slate-500 mb-3">Choose how long you want your meal subscription to run:</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {['7 Days', '14 Days', '26 Days', '30 Days'].map((dur) => (
-                        <button
-                          key={dur}
-                          type="button"
-                          onClick={() => setEditDuration(dur)}
-                          className={`py-3 px-3 rounded-2xl border text-center transition-all cursor-pointer ${
-                            editDuration === dur
-                              ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold shadow-xs ring-2 ring-emerald-500/20'
-                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-medium'
+            {/* Modal Body (Scrollable) */}
+            <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
+              {addressMode === 'saved' && addresses.length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500">Choose one of your saved delivery addresses:</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {addresses.map((addr: any, idx: number) => {
+                      const isSelected = selectedAddrIndex === idx;
+                      return (
+                        <div
+                          key={addr.id || `saved-addr-${idx}`}
+                          onClick={() => setSelectedAddrIndex(idx)}
+                          className={`p-4 rounded-2xl border-2 text-left cursor-pointer transition-all relative ${
+                            isSelected
+                              ? 'border-emerald-500 bg-emerald-50/50 shadow-xs ring-2 ring-emerald-500/20'
+                              : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50/50'
                           }`}
                         >
-                          <span className="block text-sm font-bold">{dur}</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">
-                            {dur === '7 Days' ? '1 Week' : dur === '14 Days' ? '2 Weeks' : dur === '26 Days' ? '26 Meals' : 'Full Month'}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Meals Per Day Updation */}
-                  <div>
-                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
-                      Meals Included Per Day
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {[
-                        { id: '1', label: '1 Meal Daily', sub: 'Breakfast or Lunch or Dinner' },
-                        { id: '2', label: '2 Meals Daily', sub: 'Two balanced meals' },
-                        { id: '3', label: '3 Meals Daily', sub: 'All 3 daily meals' }
-                      ].map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => {
-                            setEditMealsPerDay(m.id);
-                            if (m.id === '3') setEditSlot('all');
-                            else if (m.id === '2' && editSlot === 'all') setEditSlot('breakfast-lunch');
-                            else if (m.id === '1' && (editSlot === 'all' || editSlot.includes('-'))) setEditSlot('breakfast');
-                          }}
-                          className={`p-3 rounded-2xl border text-center transition-all cursor-pointer ${
-                            editMealsPerDay === m.id
-                              ? 'bg-emerald-50 border-emerald-500 text-emerald-800 font-bold shadow-xs ring-2 ring-emerald-500/20'
-                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 font-medium'
-                          }`}
-                        >
-                          <span className="block text-sm font-bold">{m.label}</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5">{m.sub}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Delivery Time Window (Slot) Selection */}
-                  <div>
-                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-2">
-                      Delivery Window
-                    </label>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Select which meal delivery timeframe you would like your food dispatched in:
-                    </p>
-
-                    {editMealsPerDay === '1' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        {[
-                          { id: 'breakfast', name: 'Breakfast', time: '07:00 - 08:30 AM', icon: '🌅' },
-                          { id: 'lunch', name: 'Lunch', time: '12:00 - 01:30 PM', icon: '☀️' },
-                          { id: 'dinner', name: 'Dinner', time: '07:00 - 08:30 PM', icon: '🌙' }
-                        ].map((s) => (
-                          <div
-                            key={s.id}
-                            onClick={() => setEditSlot(s.id)}
-                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-center ${
-                              editSlot === s.id
-                                ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-xs ring-2 ring-emerald-500/20'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="text-lg block mb-1">{s.icon}</span>
-                            <span className="text-xs font-bold block">{s.name}</span>
-                            <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">{s.time}</span>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                                isSelected ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300 bg-white'
+                              }`}>
+                                {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                              </div>
+                              <span className="font-bold text-sm text-slate-900">{addr.title || 'Address'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {addr.isDefault && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                                  Default
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  confirmDeleteModalAddress(addr.id, idx);
+                                }}
+                                className="p-1.5 rounded-lg text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 transition-colors cursor-pointer"
+                                title="Delete saved address"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                              </button>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {editMealsPerDay === '2' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        {[
-                          { id: 'breakfast-lunch', name: 'Breakfast & Lunch', time: '07:00 AM & 12:00 PM', icon: '🌅+☀️' },
-                          { id: 'lunch-dinner', name: 'Lunch & Dinner', time: '12:00 PM & 07:00 PM', icon: '☀️+🌙' },
-                          { id: 'breakfast-dinner', name: 'Breakfast & Dinner', time: '07:00 AM & 07:00 PM', icon: '🌅+🌙' }
-                        ].map((s) => (
-                          <div
-                            key={s.id}
-                            onClick={() => setEditSlot(s.id)}
-                            className={`p-3.5 rounded-2xl border transition-all cursor-pointer text-center ${
-                              editSlot === s.id
-                                ? 'bg-emerald-50 border-emerald-500 text-emerald-900 font-bold shadow-xs ring-2 ring-emerald-500/20'
-                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <span className="text-base block mb-1">{s.icon}</span>
-                            <span className="text-xs font-bold block">{s.name}</span>
-                            <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">{s.time}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {editMealsPerDay === '3' && (
-                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
-                        <span className="text-xl block mb-1">🌅 ☀️ 🌙</span>
-                        <span className="text-xs font-bold text-emerald-950 block">All 3 Daily Meals</span>
-                        <p className="text-[11px] text-emerald-700 mt-1 font-medium">
-                          Breakfast (07:00 - 08:30 AM) &bull; Lunch (12:00 - 01:30 PM) &bull; Dinner (07:00 - 08:30 PM)
-                        </p>
-                      </div>
-                    )}
+                          <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed pl-6 pr-2">
+                            {addr.address}
+                          </p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
-
-              {manageTab === 'address' && (
-                <div className="space-y-5 animate-in fade-in">
-                  <div>
-                    <label className="block text-xs font-black uppercase tracking-wider text-slate-700 mb-1">
-                      Delivery Address
-                    </label>
-                    <p className="text-xs text-slate-500 mb-3">Update where your meals should be delivered every day:</p>
-
-                    {/* Saved addresses shortcut */}
-                    {addresses.length > 0 && (
-                      <div className="mb-4">
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-                          Select from Saved Addresses:
-                        </span>
-                        <div className="flex flex-wrap gap-2">
-                          {addresses.map((a: any) => (
-                            <button
-                              key={a.id}
-                              type="button"
-                              onClick={() => setEditAddress(a.address)}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                                editAddress.trim().toLowerCase() === a.address.trim().toLowerCase()
-                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                              }`}
-                            >
-                              📍 {a.title}: {a.address.slice(0, 25)}...
-                            </button>
-                          ))}
+              ) : (
+                /* New / Manual / Map Address Entry matching Checkout.tsx */
+                <div className="space-y-4">
+                  {/* Google Maps & GPS Section */}
+                  {!showAddressMapPicker ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                          <MapPin className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-emerald-950">Delivery Location & GPS</p>
+                          <p className="text-[11px] text-emerald-700">Search place, use GPS or pinpoint your exact delivery entrance</p>
                         </div>
                       </div>
-                    )}
 
-                    <textarea
-                      rows={3}
-                      value={editAddress}
-                      onChange={(e) => setEditAddress(e.target.value)}
-                      placeholder="Enter flat/door no, building, street, landmark, city, and pincode..."
-                      className="w-full p-3.5 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-xs sm:text-sm bg-slate-50 focus:bg-white leading-relaxed"
-                    />
+                      <button
+                        type="button"
+                        onClick={() => setShowAddressMapPicker(true)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+                      >
+                        <Compass className="w-4 h-4" />
+                        Choose on Map
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 animate-in fade-in zoom-in-95 duration-200">
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <Compass className="w-4 h-4 text-emerald-600" />
+                          Pinpoint on Map or Search Place
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddressMapPicker(false)}
+                          className="text-xs font-bold text-slate-500 hover:text-slate-800 hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Close Map
+                        </button>
+                      </div>
+                      <LocationMapPicker
+                        initialLat={addressMapCoords.lat}
+                        initialLng={addressMapCoords.lng}
+                        onLocationSelect={handleAddressLocationPicked}
+                        onClose={() => {
+                          setShowAddressMapPicker(false);
+                          toast.success('Location confirmed from map!', { id: 'location-picked-toast' });
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Structured manual address fields */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Flat / House / Door No. <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Flat 402, 4th Floor"
+                        value={manualAddressFields.flatNo}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, flatNo: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Building / Street / Society <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Green Meadows, 12th Main"
+                        value={manualAddressFields.street}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, street: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
 
-              {manageTab === 'dietary' && (
-                <div className="space-y-6 animate-in fade-in">
-                  {/* Food Allergies */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Area / Locality / Neighborhood <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Panampilly Nagar"
+                        value={manualAddressFields.area}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, area: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Landmark <span className="text-slate-400 font-normal lowercase">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Near Metro Station / Park"
+                        value={manualAddressFields.landmark}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, landmark: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        City / Town <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Kochi"
+                        value={manualAddressFields.city}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, city: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        State <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Kerala"
+                        value={manualAddressFields.state}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, state: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Pincode <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 682036"
+                        value={manualAddressFields.pincode}
+                        onChange={(e) => setManualAddressFields(prev => ({ ...prev, pincode: e.target.value }))}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Address Label Tag */}
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-black uppercase tracking-wider text-slate-700 block">
-                        Food Allergies
-                      </label>
-                      <span className="text-[11px] text-slate-400">Tap to add / remove</span>
-                    </div>
-                    <p className="text-xs text-slate-500 mb-3">
-                      Our kitchen will strictly exclude meals prepared with these ingredients:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {commonIngredients.map(item => {
-                        const isSelected = editAllergies.includes(item);
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                      Save Address Label As
+                    </label>
+                    <div className="flex gap-2.5">
+                      {[
+                        { id: 'Home', icon: Home, label: 'Home' },
+                        { id: 'Work', icon: Briefcase, label: 'Work' },
+                        { id: 'Other', icon: Building, label: 'Other' },
+                      ].map((t) => {
+                        const IconComp = t.icon;
+                        const isSel = manualAddressFields.tag === t.id;
                         return (
                           <button
-                            key={`edit-allergy-${item}`}
+                            key={t.id}
                             type="button"
-                            onClick={() => {
-                              setEditAllergies(prev => 
-                                prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]
-                              );
-                            }}
-                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer ${
-                              isSelected 
-                                ? 'bg-red-50 text-red-600 border-red-300 shadow-xs ring-1 ring-red-400' 
-                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            onClick={() => setManualAddressFields(prev => ({ ...prev, tag: t.id }))}
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                              isSel
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                             }`}
                           >
-                            {isSelected ? '✕ ' : '+ '}{item}
+                            <IconComp className="w-3.5 h-3.5" />
+                            {t.label}
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Special Preferences */}
-                  <div className="pt-2 border-t border-slate-100">
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-black uppercase tracking-wider text-slate-700 block">
-                        Special Preferences
-                      </label>
-                      <span className="text-[11px] text-slate-400">Dietary goals</span>
+                  {/* Summary preview */}
+                  {formatManualAddress(manualAddressFields) && (
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
+                      <span className="font-bold text-slate-900 block mb-0.5">Delivery Address Preview:</span>
+                      <p className="text-slate-600 leading-relaxed">{formatManualAddress(manualAddressFields)}</p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {['High Protein', 'Low Carb', 'Low Sodium', 'Less Spicy', 'Keto-friendly', 'Sugar-Free', 'Halal', 'No Pork', 'No Beef'].map(pref => {
-                        const isSelected = editPreferences.includes(pref);
-                        return (
-                          <button
-                            key={`edit-pref-${pref}`}
-                            type="button"
-                            onClick={() => {
-                              setEditPreferences(prev => 
-                                prev.includes(pref) ? prev.filter(i => i !== pref) : [...prev, pref]
-                              );
-                            }}
-                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer ${
-                              isSelected 
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-xs ring-1 ring-emerald-400' 
-                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                            }`}
-                          >
-                            {isSelected ? '✓ ' : '+ '}{pref}
-                          </button>
-                        );
-                      })}
+                  )}
+
+                  {/* Save to addresses checkbox */}
+                  <div
+                    onClick={() => setSaveToAddresses(!saveToAddresses)}
+                    className={`inline-flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border cursor-pointer select-none transition-all ${
+                      saveToAddresses
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900 ring-1 ring-emerald-500/20 shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={saveToAddresses}
+                      onChange={(e) => setSaveToAddresses(e.target.checked)}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-4 h-4 rounded-md flex items-center justify-center transition-all ${
+                        saveToAddresses
+                          ? 'bg-emerald-600 text-white shadow-2xs'
+                          : 'border-2 border-slate-300 bg-white'
+                      }`}
+                    >
+                      {saveToAddresses && <Check className="w-3 h-3 stroke-[3]" />}
                     </div>
+                    <span className="text-xs font-semibold">
+                      Save this address to My Saved Addresses
+                    </span>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Footer with Save Changes */}
+            {/* Modal Footer */}
             <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
               <button
                 type="button"
-                onClick={() => setManagingSub(null)}
-                className="px-4 py-2.5 text-slate-600 hover:text-slate-800 text-xs font-bold transition-colors cursor-pointer"
+                onClick={() => setAddressModalSub(null)}
+                className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-bold transition-colors cursor-pointer"
               >
-                Close
+                Cancel
               </button>
 
               <button
                 type="button"
-                disabled={isSavingPlan || managingSub.status === 'Cancelled'}
-                onClick={handleSavePlanChanges}
+                disabled={isSavingAddress}
+                onClick={handleSaveDeliveryAddress}
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                {isSavingPlan ? (
+                {isSavingAddress ? (
                   <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Saving...</span>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Saving Address...</span>
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Save Changes</span>
+                    <span>Update Delivery Address</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Meal Slot Skip / Customization Modal */}
+      {mealSkipModalOpen && selectedDateForMeals && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setMealSkipModalOpen(false)}
+        >
+          <div 
+            className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                  <Utensils className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-base sm:text-lg tracking-tight">Manage Meals</h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                      {selectedDateForMeals.sub?.planName || 'Meal Plan'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5 font-medium">
+                    <CalendarIcon className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{selectedDateForMeals.formattedDate}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMealSkipModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              {/* Quick action buttons */}
+              <div className="flex items-center justify-between gap-2 p-1.5 bg-slate-100 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => handleSkipEntireDay(selectedDateForMeals.dateStr, selectedDateForMeals.sub)}
+                  className="flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200/80 hover:border-rose-200 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <CalendarX className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Skip All Meals Today</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRestoreEntireDay(selectedDateForMeals.dateStr, selectedDateForMeals.sub)}
+                  className="flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200/80 hover:border-emerald-200 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Deliver All Meals</span>
+                </button>
+              </div>
+
+              {/* Meal cards list */}
+              <div className="space-y-2.5">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">
+                  Available Meal Deliveries for this Date
+                </p>
+                {getSubAvailableMealSlots(selectedDateForMeals.sub).map((slot) => {
+                  const isSkipped = checkIsMealSkipped(selectedDateForMeals.dateStr, slot.type, selectedDateForMeals.sub);
+                  
+                  return (
+                    <div 
+                      key={slot.type}
+                      className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                        isSkipped
+                          ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                          : 'bg-emerald-50/40 border-emerald-200/80 text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+                          isSkipped ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {slot.type === 'Breakfast' ? (
+                            <Coffee className="w-5 h-5" />
+                          ) : slot.type === 'Lunch' ? (
+                            <Sun className="w-5 h-5" />
+                          ) : (
+                            <Moon className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-slate-900">{slot.label}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              isSkipped
+                                ? 'bg-rose-200 text-rose-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              {isSkipped ? '✕ Skipped' : '✓ Scheduled'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1 mt-0.5">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>{slot.time}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleMealSlot(selectedDateForMeals.dateStr, slot.type, selectedDateForMeals.sub)}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5 flex-shrink-0 ${
+                          isSkipped
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            : 'bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 hover:border-rose-300'
+                        }`}
+                      >
+                        {isSkipped ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            <span>Resume</span>
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-3.5 h-3.5" />
+                            <span>Skip Meal</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Informative Note */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Zero Food Waste Guarantee</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  Skipping any meal automatically postpones that meal credit so you never lose paid meals. You can resume any meal anytime before daily dispatch cutoff.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setMealSkipModalOpen(false)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+              >
+                Done
               </button>
             </div>
           </div>

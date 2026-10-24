@@ -227,8 +227,13 @@ export function AdminLoginPage() {
           </form>
 
           {/* Footer note */}
-          <div className="mt-8 pt-4 border-t border-slate-100 text-center text-slate-400 text-xs">
-            Shift24 Operations Portal &bull; Secure Administrator Access
+          <div className="mt-8 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+            <Link to="/login" className="hover:text-slate-600 transition">
+              ← Customer Login
+            </Link>
+            <Link to="/driver/login" className="font-bold text-emerald-600 hover:text-emerald-700 transition">
+              Driver Partner Portal →
+            </Link>
           </div>
         </div>
       </div>

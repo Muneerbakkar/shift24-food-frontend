@@ -30,6 +30,25 @@ import {
 } from '../../services/api';
 import toast from 'react-hot-toast';
 
+const formatDateStr = (dateStr: string) => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    const d = new Date(year, month, day);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+  }
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  return dateStr;
+};
+
 export function AdminSubscriptions() {
   const [subscriptions, setSubscriptions] = useState<AdminSubscription[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -76,8 +95,30 @@ export function AdminSubscriptions() {
             endDate: sub.endDate,
             nextDelivery: sub.nextDelivery,
             address: sub.address,
+            coordinates: sub.coordinates || (sub.latitude && sub.longitude ? { lat: sub.latitude, lng: sub.longitude } : undefined),
+            latitude: sub.latitude || sub.coordinates?.lat,
+            longitude: sub.longitude || sub.coordinates?.lng,
             allergies: sub.allergies || [],
+            skippedDates: Array.isArray(sub.skippedDates) ? sub.skippedDates : [],
+            preferences: Array.isArray(sub.preferences) ? sub.preferences : [],
+            pauseStartDate: sub.pauseStartDate,
+            pauseEndDate: sub.pauseEndDate,
           }));
+
+        // Merge activeSubscription skipped dates if available
+        try {
+          const activeSubRaw = localStorage.getItem('activeSubscription');
+          if (activeSubRaw) {
+            const activeSub = JSON.parse(activeSubRaw);
+            if (activeSub.skippedDates && Array.isArray(activeSub.skippedDates) && activeSub.skippedDates.length > 0) {
+              backendSubs.forEach(s => {
+                if ((!s.skippedDates || s.skippedDates.length === 0) && (s.id === activeSub.id || s.id === activeSub.subId || backendSubs.length === 1)) {
+                  s.skippedDates = activeSub.skippedDates;
+                }
+              });
+            }
+          }
+        } catch {}
 
         setSubscriptions(backendSubs);
         saveAdminSubscriptions(backendSubs);
@@ -110,13 +151,34 @@ export function AdminSubscriptions() {
 
     const updated = subscriptions.map(sub => {
       if (sub.id === subId) {
-        return { ...sub, status: nextStatus, nextDelivery };
+        return { 
+          ...sub, 
+          status: nextStatus, 
+          nextDelivery,
+          pauseStartDate: nextStatus === 'Active' ? null : sub.pauseStartDate,
+          pauseEndDate: nextStatus === 'Active' ? null : sub.pauseEndDate
+        };
       }
       return sub;
     });
 
     setSubscriptions(updated);
     saveAdminSubscriptions(updated);
+
+    if (nextStatus === 'Paused') {
+      try {
+        const cleanId = subId.replace(/^SUB-/, '');
+        const currentOrders = getAdminOrders();
+        const cleanedOrders = currentOrders.filter(o => {
+          if (o.status === 'Delivered') return true;
+          if (o.subscriptionId === subId || (o.id && o.id.startsWith(`ORD-${cleanId}-`))) return false;
+          return true;
+        });
+        saveAdminOrders(cleanedOrders);
+        window.dispatchEvent(new Event('shift24-orders-updated'));
+      } catch {}
+    }
+
     window.dispatchEvent(new Event('shift24-customers-updated'));
     window.dispatchEvent(new Event('shift24-subscriptions-updated'));
     toast.success(`Subscription ${nextStatus === 'Paused' ? 'paused' : 'resumed'}`);
@@ -273,6 +335,7 @@ export function AdminSubscriptions() {
                 <th className="px-5 py-4">Daily Meals & Slot</th>
                 <th className="px-5 py-4">Total Amount</th>
                 <th className="px-5 py-4">Next Delivery</th>
+                <th className="px-5 py-4">Skipped Dates</th>
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4 text-right">Actions</th>
               </tr>
@@ -298,6 +361,30 @@ export function AdminSubscriptions() {
                   </td>
                   <td className="px-5 py-4 text-slate-500 text-[11px]">
                     {sub.nextDelivery}
+                  </td>
+                  <td className="px-5 py-4">
+                    {sub.skippedDates && sub.skippedDates.length > 0 ? (
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-bold">
+                          <Calendar className="w-3 h-3 text-rose-500" />
+                          {sub.skippedDates.length} {sub.skippedDates.length === 1 ? 'day skipped' : 'days skipped'}
+                        </span>
+                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                          {sub.skippedDates.slice(0, 3).map((d) => (
+                            <span key={d} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-semibold border border-slate-200">
+                              {formatDateStr(d)}
+                            </span>
+                          ))}
+                          {sub.skippedDates.length > 3 && (
+                            <span className="text-[10px] text-slate-400 font-bold self-center">
+                              +{sub.skippedDates.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 text-[11px] font-normal">None</span>
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
@@ -350,7 +437,7 @@ export function AdminSubscriptions() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-16 text-center text-slate-400">
+                  <td colSpan={8} className="px-5 py-16 text-center text-slate-400">
                     <div className="flex flex-col items-center justify-center max-w-sm mx-auto">
                       <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
                         <Repeat className="w-6 h-6" />
@@ -493,6 +580,44 @@ export function AdminSubscriptions() {
                 )}
               </div>
 
+              {/* Skipped Delivery Dates */}
+              <div className="p-4 rounded-2xl bg-rose-50/60 border border-rose-200/80">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-bold text-rose-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-rose-600" />
+                    Skipped Delivery Dates ({selectedSub.skippedDates?.length || 0})
+                  </span>
+                  {selectedSub.skippedDates && selectedSub.skippedDates.length > 0 && (
+                    <span className="text-[10px] font-bold text-rose-700 bg-white px-2 py-0.5 rounded-full border border-rose-200">
+                      Schedule Extended
+                    </span>
+                  )}
+                </div>
+
+                {selectedSub.skippedDates && selectedSub.skippedDates.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-rose-800 font-medium">
+                      Customer skipped deliveries on these dates (subscription schedule is extended):
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {selectedSub.skippedDates.map((dateStr) => (
+                        <div
+                          key={dateStr}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white text-rose-800 font-bold text-xs border border-rose-200 shadow-2xs"
+                        >
+                          <Calendar className="w-3.5 h-3.5 text-rose-500" />
+                          <span>{formatDateStr(dateStr)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500 font-medium">
+                    No delivery dates skipped by customer.
+                  </div>
+                )}
+              </div>
+
               {/* Schedule Dates */}
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
@@ -502,6 +627,11 @@ export function AdminSubscriptions() {
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <span className="text-[10px] text-slate-400 uppercase font-bold block">End Date</span>
                   <span className="font-bold text-slate-800">{selectedSub.endDate}</span>
+                  {selectedSub.skippedDates && selectedSub.skippedDates.length > 0 && (
+                    <span className="text-[10px] text-rose-600 font-bold block mt-0.5">
+                      +{selectedSub.skippedDates.length} skipped {selectedSub.skippedDates.length === 1 ? 'day' : 'days'}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

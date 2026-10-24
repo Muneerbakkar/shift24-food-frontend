@@ -10,16 +10,22 @@ import {
   Flame, 
   ShieldAlert,
   Printer,
-  Calendar
+  Calendar,
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
-import { getAdminOrders, AdminOrder } from './adminData';
-import { fetchOrders } from '../../services/api';
+import { getAdminOrders, AdminOrder, projectOrdersForDate, syncLocalOrdersFromSubscriptions } from './adminData';
+import { fetchOrders, generateBackendOrders } from '../../services/api';
+import toast from 'react-hot-toast';
+import { KitchenTicketModal, printKitchenTicketSlip } from './KitchenTicketModal';
 
 export function AdminKitchen() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [dateFilter, setDateFilter] = useState<'today' | 'tomorrow'>('today');
   const [activeSlot, setActiveSlot] = useState<'All' | 'Breakfast' | 'Lunch' | 'Dinner'>('All');
   const [loading, setLoading] = useState(true);
+  const [isSyncingTomorrow, setIsSyncingTomorrow] = useState(false);
+  const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
 
   const loadKitchenBoard = async () => {
     setLoading(true);
@@ -62,38 +68,96 @@ export function AdminKitchen() {
 
     const handleUpdate = () => loadKitchenBoard();
     window.addEventListener('shift24-subscriptions-updated', handleUpdate);
+    window.addEventListener('shift24-orders-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
 
     return () => {
       window.removeEventListener('shift24-subscriptions-updated', handleUpdate);
+      window.removeEventListener('shift24-orders-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
   }, []);
 
-  const todayISO = new Date().toISOString().split('T')[0];
-  const tomorrowObj = new Date();
-  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-  const tomorrowISO = tomorrowObj.toISOString().split('T')[0];
+  // Compute clean local dates
+  const getLocalDateString = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const now = new Date();
+  const todayObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayISO = getLocalDateString(todayObj);
+
+  const tomorrowObj = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const tomorrowISO = getLocalDateString(tomorrowObj);
+  const tomorrowFormatted = tomorrowObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  const getOrderDateISO = (order: AdminOrder): string | null => {
+    if (order.deliveryDate) {
+      const match = order.deliveryDate.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+      if (match) return match[1];
+    }
+    if (order.id) {
+      const idMatch = order.id.match(/\b(\d{4})(\d{2})(\d{2})\b/);
+      if (idMatch) return `${idMatch[1]}-${idMatch[2]}-${idMatch[3]}`;
+    }
+    if (order.deliveryDate) {
+      const lower = order.deliveryDate.toLowerCase();
+      if (lower.includes('today')) return todayISO;
+      if (lower.includes('tomorrow')) return tomorrowISO;
+    }
+    return null;
+  };
 
   const isTodayOrder = (o: AdminOrder) => {
     if (o.id.includes('-M-')) return false;
+    const iso = getOrderDateISO(o);
+    if (iso) return iso === todayISO;
     const d = (o.deliveryDate || '').toLowerCase();
-    const todayFormatted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toLowerCase();
+    const todayFormatted = todayObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toLowerCase();
     return d.includes('today') || d.includes(todayISO) || d.includes(todayFormatted);
   };
 
   const isTomorrowOrder = (o: AdminOrder) => {
+    const iso = getOrderDateISO(o);
+    if (iso) return iso === tomorrowISO;
     const d = (o.deliveryDate || '').toLowerCase();
     if (d.includes('today') && !o.id.includes('-M-')) return false;
     if (d.includes('tomorrow')) return true;
     if (d.includes(tomorrowISO)) return true;
     if (o.id.includes('-M-')) return true;
-    const tomorrowFormatted = new Date(Date.now() + 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toLowerCase();
-    return d.includes(tomorrowFormatted);
+    return d.includes(tomorrowFormatted.toLowerCase());
   };
 
   const todayOrders = orders.filter(isTodayOrder);
-  const tomorrowOrders = orders.filter(isTomorrowOrder);
+  let tomorrowOrders = orders.filter(isTomorrowOrder);
+
+  // If tomorrow's orders haven't been generated in the database yet,
+  // dynamically project scheduled meal batches directly from active customer subscriptions
+  if (tomorrowOrders.length === 0) {
+    tomorrowOrders = projectOrdersForDate(tomorrowISO);
+  }
+
+  const handleSyncTomorrowOrders = async () => {
+    try {
+      setIsSyncingTomorrow(true);
+      try {
+        await generateBackendOrders(undefined, tomorrowISO);
+      } catch (e) {
+        console.warn('Backend tomorrow order sync failed:', e);
+      }
+      const synced = syncLocalOrdersFromSubscriptions(undefined, { targetDateISO: tomorrowISO });
+      setOrders(synced);
+      window.dispatchEvent(new Event('shift24-orders-updated'));
+      toast.success("Tomorrow's dispatch orders generated and saved successfully!");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to save tomorrow's orders");
+    } finally {
+      setIsSyncingTomorrow(false);
+    }
+  };
 
   const activeOrders = dateFilter === 'today' ? todayOrders : tomorrowOrders;
 
@@ -107,14 +171,14 @@ export function AdminKitchen() {
     return acc;
   }, {} as Record<string, number>);
 
-  // Orders with allergies for the selected day
-  const allergyAlerts = activeOrders.filter(o => o.allergies && o.allergies.length > 0);
+  // Orders with allergies for the selected day & meal slot (All, Breakfast, Lunch, Dinner)
+  const allergyAlerts = filteredOrders.filter(o => o.allergies && o.allergies.length > 0);
 
   const dayLabel = dateFilter === 'today' ? "Today's" : "Tomorrow's";
   const dayName = dateFilter === 'today' ? 'Today' : 'Tomorrow';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -170,16 +234,55 @@ export function AdminKitchen() {
             </button>
           </div>
 
+          {/* Sync / Generate Tomorrow's Orders Button */}
+          {dateFilter === 'tomorrow' && (
+            <button
+              type="button"
+              onClick={handleSyncTomorrowOrders}
+              disabled={isSyncingTomorrow}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+              title="Save tomorrow's orders into the active dispatch queue"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isSyncingTomorrow ? 'animate-spin' : ''}`} />
+              <span>{isSyncingTomorrow ? 'Saving...' : "Save Tomorrow's Orders"}</span>
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={() => window.print()}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer shrink-0"
+            onClick={() => setIsTicketModalOpen(true)}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs flex items-center gap-2 cursor-pointer shrink-0 transition-colors"
+            title="Preview and print kitchen preparation ticket receipt"
           >
-            <Printer className="w-4 h-4" />
+            <Printer className="w-4 h-4 text-emerald-400" />
             <span>Print Kitchen Ticket</span>
           </button>
         </div>
       </div>
+
+      {/* Tomorrow Active Banner */}
+      {dateFilter === 'tomorrow' && (
+        <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-extrabold text-indigo-950">
+                Viewing Tomorrow's Scheduled Meal Preparation ({tomorrowObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })})
+              </p>
+              <p className="text-slate-500 text-[11px] mt-0.5">
+                Kitchen prep and ingredient portions projected from active meal plan subscriptions.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-full bg-indigo-100 text-indigo-800 font-extrabold text-xs">
+              {tomorrowOrders.length} Portions Scheduled
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Critical Allergy Warning Banner */}
       {allergyAlerts.length > 0 && (
@@ -190,7 +293,7 @@ export function AdminKitchen() {
             </div>
             <div>
               <h3 className="text-sm font-extrabold text-amber-950 uppercase tracking-wider">
-                Critical Allergen Notices ({allergyAlerts.length} Orders {dayName})
+                Critical Allergen Notices ({allergyAlerts.length} Order{allergyAlerts.length === 1 ? '' : 's'}{activeSlot !== 'All' ? ` • ${activeSlot}` : ''} {dayName})
               </h3>
               <p className="text-xs text-amber-900 font-medium">
                 Ensure separate cooking surfaces and sanitized utensils for these boxes:
@@ -323,6 +426,22 @@ export function AdminKitchen() {
           </div>
         )}
       </div>
+
+      {/* Kitchen Prep Ticket Print Modal */}
+      <KitchenTicketModal
+        isOpen={isTicketModalOpen}
+        onClose={() => setIsTicketModalOpen(false)}
+        dayName={dayName as 'Today' | 'Tomorrow'}
+        dateISO={dateFilter === 'today' ? todayISO : tomorrowISO}
+        dateFormatted={dateFilter === 'today' ? todayObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }) : tomorrowObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
+        activeSlot={activeSlot}
+        onSlotChange={setActiveSlot}
+        allDayOrders={activeOrders}
+        totalPortions={filteredOrders.length}
+        dishCounts={dishCounts}
+        allergyAlerts={allergyAlerts}
+        orders={filteredOrders}
+      />
     </div>
   );
 }
