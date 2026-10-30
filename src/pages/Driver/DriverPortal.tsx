@@ -1,3 +1,4 @@
+import { NotificationBellDropdown } from '../../components/notifications/NotificationBellDropdown';
 import { PwaNotificationCard } from '../../components/pwa/PwaNotificationCard';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';

@@ -2,15 +2,25 @@ export interface UserNotification {
   id: string;
   _id?: string;
   notificationId?: string;
+  role?: 'customer' | 'admin' | 'driver' | 'all';
   title: string;
   message: string;
   time: string;
   timestamp: number;
-  type: 'order' | 'delivery' | 'kitchen' | 'success' | 'alert' | 'calendar' | 'promo';
+  type: 'order' | 'delivery' | 'kitchen' | 'dispatch' | 'system' | 'driver' | 'success' | 'alert' | 'calendar' | 'promo';
+  status?: string;
   unread: boolean;
   link?: string;
   subscriptionId?: string;
   orderId?: string;
+}
+
+export interface UserContext {
+  role: 'customer' | 'admin' | 'driver';
+  email: string;
+  name: string;
+  id?: string;
+  phone?: string;
 }
 
 const rawBase = ((import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api').trim().replace(/\/+$/, '');
@@ -49,8 +59,49 @@ export function getResolvedUserEmail(userEmailOverride?: string): string {
   return '';
 }
 
+export function getCurrentUserContext(): UserContext {
+  // 1. Admin
+  if (localStorage.getItem('isAdminLoggedIn') === 'true') {
+    let email = 'admin@shift24.com';
+    let name = 'Admin';
+    try {
+      const stored = localStorage.getItem('adminUser');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.email) email = parsed.email;
+        if (parsed.name) name = parsed.name;
+      }
+    } catch {}
+    return { role: 'admin', email, name };
+  }
+
+  // 2. Driver
+  if (localStorage.getItem('isDriverLoggedIn') === 'true') {
+    let email = '';
+    let name = 'Driver';
+    let id = '';
+    let phone = '';
+    try {
+      const stored = localStorage.getItem('driverUser');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.id || parsed._id) id = parsed.id || parsed._id;
+        if (parsed.email) email = parsed.email;
+        if (parsed.name) name = parsed.name;
+        if (parsed.phone) phone = parsed.phone;
+      }
+    } catch {}
+    return { role: 'driver', id, email, name, phone };
+  }
+
+  // 3. Customer
+  const email = getResolvedUserEmail();
+  const name = localStorage.getItem('userName') || 'Customer';
+  return { role: 'customer', email, name };
+}
+
 function getAuthHeaders(customHeaders: Record<string, string> = {}) {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('token') || localStorage.getItem('adminToken') || localStorage.getItem('driverToken');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...customHeaders
@@ -85,14 +136,23 @@ function formatRelativeTime(dateInput?: string | Date | number): string {
   return targetDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
 }
 
-export async function getUserNotifications(userEmailOverride?: string): Promise<UserNotification[]> {
-  const email = getResolvedUserEmail(userEmailOverride);
-  if (!email) {
-    return [];
-  }
+export async function getUserNotifications(options?: {
+  role?: 'customer' | 'admin' | 'driver';
+  email?: string;
+  driverId?: string;
+}): Promise<UserNotification[]> {
+  const ctx = getCurrentUserContext();
+  const role = options?.role || ctx.role;
+  const email = options?.email || ctx.email;
+  const driverId = options?.driverId || ctx.id;
+
+  const params = new URLSearchParams();
+  if (role) params.set('role', role);
+  if (email) params.set('email', email);
+  if (driverId) params.set('driverId', driverId);
 
   try {
-    const res = await fetch(`${API_BASE}/notifications?email=${encodeURIComponent(email)}`, {
+    const res = await fetch(`${API_BASE}/notifications?${params.toString()}`, {
       credentials: 'include',
       headers: getAuthHeaders()
     });
@@ -102,13 +162,15 @@ export async function getUserNotifications(userEmailOverride?: string): Promise<
         id: item.notificationId || item._id,
         _id: item._id,
         notificationId: item.notificationId,
+        role: item.role,
         title: item.title,
         message: item.message,
         time: formatRelativeTime(item.createdAt),
         timestamp: new Date(item.createdAt).getTime(),
         type: item.type || 'order',
+        status: item.status,
         unread: !!item.unread,
-        link: item.link || '/profile',
+        link: item.link || (item.role === 'admin' ? '/admin/orders' : item.role === 'driver' ? '/driver/portal' : '/profile'),
         subscriptionId: item.subscriptionId,
         orderId: item.orderId
       }));
@@ -133,14 +195,17 @@ export async function markNotificationAsRead(id: string) {
   }
 }
 
-export async function markAllNotificationsAsRead(emailOverride?: string) {
-  const email = getResolvedUserEmail(emailOverride);
+export async function markAllNotificationsAsRead(options?: { role?: string; email?: string }) {
+  const ctx = getCurrentUserContext();
+  const role = options?.role || ctx.role;
+  const email = options?.email || ctx.email;
+
   try {
     await fetch(`${API_BASE}/notifications/read-all`, {
       method: 'PATCH',
       credentials: 'include',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ role, email })
     });
     window.dispatchEvent(new Event('shift24-notifications-updated'));
   } catch (err) {
@@ -159,13 +224,16 @@ export async function deleteNotification(id: string) {
   return json;
 }
 
-export async function deleteNotificationsBulk(ids?: string[], all?: boolean, emailOverride?: string) {
-  const email = getResolvedUserEmail(emailOverride);
+export async function deleteNotificationsBulk(ids?: string[], all?: boolean, options?: { role?: string; email?: string }) {
+  const ctx = getCurrentUserContext();
+  const role = options?.role || ctx.role;
+  const email = options?.email || ctx.email;
+
   const res = await fetch(`${API_BASE}/notifications`, {
     method: 'DELETE',
     credentials: 'include',
     headers: getAuthHeaders(),
-    body: JSON.stringify({ ids: ids || [], all: !!all, email })
+    body: JSON.stringify({ ids: ids || [], all: !!all, role, email })
   });
   const json = await res.json();
   window.dispatchEvent(new Event('shift24-notifications-updated'));

@@ -12,7 +12,8 @@ import {
   Trash2,
   AlertTriangle,
   X,
-  RefreshCw
+  RefreshCw,
+  ShieldCheck
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -22,6 +23,7 @@ import {
   markAllNotificationsAsRead, 
   deleteNotification,
   deleteNotificationsBulk,
+  getCurrentUserContext,
   UserNotification 
 } from '../../services/notificationService';
 
@@ -40,18 +42,23 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'dispatch' | 'kitchen' | 'orders'>('all');
   const [confirmModal, setConfirmModal] = useState<ConfirmDeleteModalState>({
     isOpen: false,
     type: 'single',
     count: 0
   });
 
-  const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
+  const ctx = getCurrentUserContext();
+  const isLoggedIn = 
+    localStorage.getItem('isLoggedIn') === 'true' || 
+    localStorage.getItem('isAdminLoggedIn') === 'true' || 
+    localStorage.getItem('isDriverLoggedIn') === 'true';
 
   const loadNotifications = async () => {
     try {
       setLoading(true);
-      const data = await getUserNotifications();
+      const data = await getUserNotifications({ role: ctx.role });
       setNotifications(data);
       // Prune selected IDs that no longer exist
       const existingIds = new Set(data.map(n => n.id));
@@ -78,11 +85,11 @@ export function NotificationsPage() {
       window.removeEventListener('shift24-subscriptions-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
     };
-  }, []);
+  }, [ctx.role, ctx.email]);
 
   const handleMarkAllAsRead = async () => {
     try {
-      await markAllNotificationsAsRead();
+      await markAllNotificationsAsRead({ role: ctx.role });
       setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
       toast.success('All notifications marked as read');
     } catch {
@@ -120,14 +127,14 @@ export function NotificationsPage() {
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.size === notifications.length) {
+    if (selectedIds.size === filteredNotifications.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(notifications.map(n => n.id)));
+      setSelectedIds(new Set(filteredNotifications.map(n => n.id)));
     }
   };
 
-  // Open modal for deleting a single notification
+  // Delete handlers
   const handleOpenDeleteSingle = (notification: UserNotification, e: React.MouseEvent) => {
     e.stopPropagation();
     setConfirmModal({
@@ -139,18 +146,24 @@ export function NotificationsPage() {
     });
   };
 
-  // Open modal for deleting selected notifications
   const handleOpenDeleteSelected = () => {
     if (selectedIds.size === 0) return;
-    const isAll = selectedIds.size === notifications.length;
     setConfirmModal({
       isOpen: true,
-      type: isAll ? 'all' : 'bulk',
+      type: 'bulk',
       count: selectedIds.size
     });
   };
 
-  // Confirm delete action
+  const handleOpenDeleteAll = () => {
+    if (notifications.length === 0) return;
+    setConfirmModal({
+      isOpen: true,
+      type: 'all',
+      count: notifications.length
+    });
+  };
+
   const handleConfirmDelete = async () => {
     setDeleting(true);
     try {
@@ -162,33 +175,44 @@ export function NotificationsPage() {
           next.delete(confirmModal.targetId!);
           return next;
         });
-        toast.success('Notification deleted successfully');
-      } else if (confirmModal.type === 'all') {
-        await deleteNotificationsBulk([], true);
-        setNotifications([]);
-        setSelectedIds(new Set());
-        toast.success('All notifications deleted successfully');
-      } else {
-        // Bulk selected
+        toast.success('Notification deleted');
+      } else if (confirmModal.type === 'bulk') {
         const idsToDelete: string[] = Array.from(selectedIds);
-        await deleteNotificationsBulk(idsToDelete, false);
-        setNotifications(prev => prev.filter(n => !selectedIds.has(n.id)));
+        await deleteNotificationsBulk(idsToDelete, false, { role: ctx.role });
+        const setDeleted = new Set(idsToDelete);
+        setNotifications(prev => prev.filter(n => !setDeleted.has(n.id)));
         setSelectedIds(new Set());
         toast.success(`${idsToDelete.length} notifications deleted`);
+      } else if (confirmModal.type === 'all') {
+        await deleteNotificationsBulk([], true, { role: ctx.role });
+        setNotifications([]);
+        setSelectedIds(new Set());
+        toast.success('All notifications cleared');
       }
     } catch {
-      toast.error('Failed to delete notification(s)');
+      toast.error('Failed to delete notifications');
     } finally {
       setDeleting(false);
       setConfirmModal({ isOpen: false, type: 'single', count: 0 });
     }
   };
 
+  // Filter notifications
+  const filteredNotifications = notifications.filter(n => {
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'dispatch') return n.type === 'dispatch' || n.type === 'delivery' || n.status === 'Out for Delivery';
+    if (activeFilter === 'kitchen') return n.type === 'kitchen' || n.status === 'Preparing';
+    if (activeFilter === 'orders') return n.type === 'order' || n.status === 'Pending' || n.status === 'Delivered';
+    return true;
+  });
+
   const getIcon = (type: string) => {
     switch (type) {
       case 'order': 
         return <Package className="w-5 h-5 text-blue-500" />;
       case 'delivery': 
+      case 'dispatch':
+      case 'driver':
         return <Truck className="w-5 h-5 text-emerald-500" />;
       case 'kitchen': 
         return <ChefHat className="w-5 h-5 text-amber-500" />;
@@ -206,7 +230,10 @@ export function NotificationsPage() {
   const getBadgeColor = (type: string) => {
     switch (type) {
       case 'order': return 'bg-blue-50 text-blue-700 border-blue-100';
-      case 'delivery': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+      case 'delivery': 
+      case 'dispatch':
+      case 'driver':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-100';
       case 'kitchen': return 'bg-amber-50 text-amber-700 border-amber-100';
       case 'calendar': return 'bg-indigo-50 text-indigo-700 border-indigo-100';
       case 'alert': return 'bg-rose-50 text-rose-700 border-rose-100';
@@ -214,7 +241,27 @@ export function NotificationsPage() {
     }
   };
 
-  const isAllSelected = notifications.length > 0 && selectedIds.size === notifications.length;
+  const getStatusBadge = (status?: string, type?: string) => {
+    const s = status || type;
+    switch (s) {
+      case 'Preparing':
+      case 'kitchen':
+        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Cooking</span>;
+      case 'Out for Delivery':
+      case 'delivery':
+      case 'dispatch':
+        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">Out for Delivery</span>;
+      case 'Delivered':
+      case 'success':
+        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Delivered</span>;
+      case 'Pending':
+        return <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">Scheduled</span>;
+      default:
+        return null;
+    }
+  };
+
+  const isAllSelected = filteredNotifications.length > 0 && selectedIds.size === filteredNotifications.length;
 
   return (
     <div className="pt-8 md:pt-16 lg:pt-20 pb-16 lg:pb-24 bg-slate-50 min-h-screen">
@@ -228,12 +275,29 @@ export function NotificationsPage() {
               <span className="text-slate-300">/</span> 
               <span className="text-slate-900 font-semibold">Notifications</span>
             </p>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-              Notifications
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+                Notifications
+              </h1>
+              {ctx.role !== 'customer' && (
+                <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-slate-900 text-white">
+                  {ctx.role === 'admin' ? 'Admin Operations' : 'Driver Portal'}
+                </span>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-3 self-start sm:self-auto">
+            <button
+              onClick={loadNotifications}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-full transition shadow-2xs cursor-pointer"
+              title="Refresh notifications"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-500' : ''}`} />
+              <span>Refresh</span>
+            </button>
+
             {notifications.some(n => n.unread) && (
               <button 
                 onClick={handleMarkAllAsRead}
@@ -244,6 +308,52 @@ export function NotificationsPage() {
             )}
           </div>
         </div>
+
+        {/* Category Tabs for filtering */}
+        {notifications.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              onClick={() => setActiveFilter('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeFilter === 'all' 
+                  ? 'bg-slate-900 text-white shadow-xs' 
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+              }`}
+            >
+              All ({notifications.length})
+            </button>
+            <button
+              onClick={() => setActiveFilter('dispatch')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeFilter === 'dispatch' 
+                  ? 'bg-slate-900 text-white shadow-xs' 
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+              }`}
+            >
+              🚚 Dispatch & Transit
+            </button>
+            <button
+              onClick={() => setActiveFilter('kitchen')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeFilter === 'kitchen' 
+                  ? 'bg-slate-900 text-white shadow-xs' 
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+              }`}
+            >
+              🍳 Kitchen Cooking
+            </button>
+            <button
+              onClick={() => setActiveFilter('orders')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeFilter === 'orders' 
+                  ? 'bg-slate-900 text-white shadow-xs' 
+                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+              }`}
+            >
+              📦 Subscriptions & Orders
+            </button>
+          </div>
+        )}
 
         {/* Not Logged In Banner */}
         {!isLoggedIn && (
@@ -262,8 +372,8 @@ export function NotificationsPage() {
           </div>
         )}
 
-                {/* Toolbar: Select All & Bulk Actions */}
-        {notifications.length > 0 && (
+        {/* Toolbar: Select All & Bulk Actions */}
+        {filteredNotifications.length > 0 && (
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <label 
@@ -277,7 +387,7 @@ export function NotificationsPage() {
                   onChange={handleSelectAll}
                   className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer"
                 />
-                <span>Select All ({notifications.length})</span>
+                <span>Select All ({filteredNotifications.length})</span>
               </label>
               
               {selectedIds.size > 0 && (
@@ -288,22 +398,23 @@ export function NotificationsPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              {selectedIds.size > 0 && (
-                <>
-                  <button 
-                    onClick={() => setSelectedIds(new Set())}
-                    className="text-xs font-semibold text-slate-500 hover:text-slate-700 px-2.5 py-1.5 transition-colors cursor-pointer"
-                  >
-                    Clear selection
-                  </button>
-                  <button 
-                    onClick={handleOpenDeleteSelected}
-                    className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-full transition-all shadow-xs cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete {selectedIds.size === notifications.length ? 'All' : `(${selectedIds.size})`}</span>
-                  </button>
-                </>
+              {selectedIds.size > 0 ? (
+                <button
+                  type="button"
+                  onClick={handleOpenDeleteSelected}
+                  className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-full transition-all shadow-xs cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete {selectedIds.size === filteredNotifications.length ? 'All' : `(${selectedIds.size})`}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenDeleteAll}
+                  className="text-xs font-semibold text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                >
+                  Clear all
+                </button>
               )}
             </div>
           </div>
@@ -316,25 +427,54 @@ export function NotificationsPage() {
               <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
               <p className="text-sm text-slate-500 font-medium">Loading notifications...</p>
             </div>
-          ) : notifications.length === 0 ? (
+          ) : filteredNotifications.length === 0 ? (
             <div className="bg-white rounded-2xl sm:rounded-3xl p-8 sm:p-12 text-center border border-slate-100 shadow-xs">
               <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Bell className="w-8 h-8" />
               </div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">No Subscription Notifications Yet</h3>
-              <p className="text-sm text-slate-500 max-w-md mx-auto mb-6">
-                When you subscribe to a meal plan or have live meal dispatch updates in Kakkanad, they will appear right here.
+              <h3 className="text-xl font-bold text-slate-900 mb-2">
+                {ctx.role === 'admin' 
+                  ? 'No Operations Alerts Yet' 
+                  : ctx.role === 'driver' 
+                  ? 'No Driver Delivery Alerts Yet' 
+                  : 'No Notifications Yet'}
+              </h3>
+              <p className="text-sm text-slate-500 max-w-md mx-auto mb-6 leading-relaxed">
+                {ctx.role === 'admin'
+                  ? 'When meals are generated from the admin panel, orders are dispatched, or drivers are assigned, live alerts will appear here.'
+                  : ctx.role === 'driver'
+                  ? 'When delivery runs are assigned to you in Kakkanad or order statuses update, live dispatch alerts will appear here.'
+                  : 'When your meal plan is active or live cooking and delivery updates occur in Kakkanad, they will appear right here.'}
               </p>
-              <Link 
-                to="/subscribe"
-                className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold px-6 py-3 rounded-full transition-all shadow-sm hover:scale-[1.02]"
-              >
-                <span>Browse Subscription Plans</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  onClick={loadNotifications}
+                  className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold px-6 py-2.5 rounded-full transition-all shadow-sm hover:scale-[1.02] cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Check for Updates</span>
+                </button>
+                {ctx.role === 'admin' ? (
+                  <Link
+                    to="/admin/orders"
+                    className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold px-6 py-2.5 rounded-full transition-all shadow-sm"
+                  >
+                    <span>Go to Admin Orders</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                ) : (
+                  <Link 
+                    to="/subscribe"
+                    className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-bold px-6 py-2.5 rounded-full transition-all shadow-2xs"
+                  >
+                    <span>Browse Subscription Plans</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </Link>
+                )}
+              </div>
             </div>
           ) : (
-            notifications.map((notification) => {
+            filteredNotifications.map((notification) => {
               const isSelected = selectedIds.has(notification.id);
               return (
                 <div 
@@ -369,9 +509,12 @@ export function NotificationsPage() {
                     {/* Body */}
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start gap-2 mb-1">
-                        <h4 className={`text-sm sm:text-base font-bold leading-tight ${notification.unread ? 'text-slate-900' : 'text-slate-700'}`}>
-                          {notification.title}
-                        </h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {getStatusBadge(notification.status, notification.type)}
+                          <h4 className={`text-sm sm:text-base font-bold leading-tight ${notification.unread ? 'text-slate-900' : 'text-slate-700'}`}>
+                            {notification.title}
+                          </h4>
+                        </div>
                         
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-[11px] sm:text-xs font-semibold text-slate-400">
@@ -396,9 +539,9 @@ export function NotificationsPage() {
 
                       {/* Action Links & Indicators */}
                       <div className="flex items-center justify-between gap-3 mt-1">
-                        {notification.subscriptionId ? (
+                        {notification.link ? (
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 group-hover:text-emerald-700">
-                            <span>View in Profile</span>
+                            <span>Open Link</span>
                             <ExternalLink className="w-3.5 h-3.5" />
                           </div>
                         ) : (
@@ -449,11 +592,11 @@ export function NotificationsPage() {
 
             <p className="text-sm text-slate-600 leading-relaxed mb-6">
               {confirmModal.type === 'single' ? (
-                <>Are you sure you want to delete <strong className="text-slate-800">"{confirmModal.targetTitle || 'this notification'}"</strong>? It will be permanently removed from your account.</>
+                <>Are you sure you want to delete <strong className="text-slate-800">"{confirmModal.targetTitle}"</strong>?</>
               ) : confirmModal.type === 'all' ? (
-                <>Are you sure you want to delete <strong className="text-slate-800">all {notifications.length} notifications</strong>? This action cannot be undone.</>
+                'Are you sure you want to permanently clear all notifications? This action cannot be undone.'
               ) : (
-                <>Are you sure you want to delete <strong className="text-slate-800">{confirmModal.count} selected notifications</strong>? They will be removed from your account.</>
+                `Are you sure you want to delete ${confirmModal.count} selected notifications?`
               )}
             </p>
 
@@ -462,26 +605,25 @@ export function NotificationsPage() {
                 type="button"
                 disabled={deleting}
                 onClick={() => setConfirmModal({ isOpen: false, type: 'single', count: 0 })}
-                className="px-5 py-2.5 rounded-full border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
+                className="px-5 py-2.5 rounded-full text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
-
               <button
                 type="button"
                 disabled={deleting}
                 onClick={handleConfirmDelete}
-                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold shadow-md hover:shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition-all shadow-sm cursor-pointer"
               >
                 {deleting ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     <span>Deleting...</span>
                   </>
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    <span>Yes, Delete</span>
+                    <span>Delete</span>
                   </>
                 )}
               </button>
