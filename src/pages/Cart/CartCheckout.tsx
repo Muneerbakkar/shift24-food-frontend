@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { ChevronLeft, CreditCard, Lock, Plus, Smartphone, Banknote, Calendar, Clock } from 'lucide-react';
 
 export function CartCheckout() {
@@ -160,12 +161,12 @@ export function CartCheckout() {
   const handlePlaceOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliverySlot) {
-      alert("Please select a delivery schedule (Date and Time Slot).");
+      toast.error("Please select a delivery schedule (Date and Time Slot).");
       return;
     }
     setIsProcessing(true);
     setTimeout(() => {
-      alert("Order placed successfully! Thank you for shopping with Shift24.");
+      toast.success("Order placed successfully! Thank you for shopping with Shift24.");
       navigate('/');
     }, 1500);
   };

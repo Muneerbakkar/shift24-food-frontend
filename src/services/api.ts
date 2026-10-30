@@ -408,6 +408,16 @@ export async function updateBackendDriver(id: string, updates: any) {
 }
 
 
+export async function updateBackendDriverPassword(id: string, password: string) {
+  const res = await fetch(`${API_BASE}/drivers/${id}/password`, {
+    method: 'PATCH',
+    headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ password })
+  });
+  return res.json();
+}
+
 export async function deleteBackendDriver(id: string) {
   const res = await fetch(`${API_BASE}/drivers/${id}`, {
     method: 'DELETE',

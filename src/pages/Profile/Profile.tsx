@@ -1,8 +1,9 @@
-import { isDateSkipped, isMealSkipped } from '../Admin/adminData';
+import { isDateSkipped, isMealSkipped, getAdminSubscriptions, saveAdminSubscriptions } from '../Admin/adminData';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check, Pause, Play, Clock, X, AlertTriangle, Compass, Plus, Home, Briefcase, Building, CheckCircle2, Mail, KeyRound, Coffee, Sun, Moon, Utensils, CalendarX, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { showConfirmToast } from '../../utils/confirmToast';
 import { commonIngredients } from '../../data/mockData';
 import { jsPDF } from 'jspdf';
 import { toPng } from 'html-to-image';
@@ -534,75 +535,101 @@ export function ProfilePage() {
   };
 
   const today = new Date();
-  const startDate = new Date(today.getFullYear(), today.getMonth(), 1);
-  const [currentMonth, setCurrentMonth] = useState(new Date(startDate.getFullYear(), startDate.getMonth(), 1));
-
-  const durationDays = 26;
-  const activeDates = new Set<string>();
-  let tempDate = new Date(startDate);
-  let daysCounted = 0;
-  let endDate = new Date(startDate);
-
-  while (daysCounted < durationDays) {
-    const mPadded = String(tempDate.getMonth() + 1).padStart(2, '0');
-    const dPadded = String(tempDate.getDate()).padStart(2, '0');
-    const dateStr = `${tempDate.getFullYear()}-${mPadded}-${dPadded}`;
-    if (!isDateSkipped(skippedDates, dateStr)) {
-      activeDates.add(dateStr);
-      daysCounted++;
-      endDate = new Date(tempDate);
-    }
-    tempDate.setDate(tempDate.getDate() + 1);
-  }
+  const [currentMonth, setCurrentMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
 
   const getSubAvailableMealSlots = (sub?: any): Array<{
     type: 'Breakfast' | 'Lunch' | 'Dinner';
     label: string;
     time: string;
   }> => {
-    const mealsPerDay = parseInt(sub?.mealsPerDay as any) || 3;
-    const slot = (sub?.slot || 'all').toLowerCase();
+    const latestSub = subscriptionsList.find(s => s.id === sub?.id) || sub || subscriptionsList[0];
 
-    const allSlots = [
-      { type: 'Breakfast' as const, label: 'Breakfast', time: '07:30 AM - 08:30 AM' },
-      { type: 'Lunch' as const, label: 'Lunch', time: '12:00 PM - 01:00 PM' },
-      { type: 'Dinner' as const, label: 'Dinner', time: '07:30 PM - 08:30 PM' }
-    ];
+    const slotBreakfast = { type: 'Breakfast' as const, label: 'Breakfast', time: '07:30 AM - 08:30 AM' };
+    const slotLunch = { type: 'Lunch' as const, label: 'Lunch', time: '12:00 PM - 01:00 PM' };
+    const slotDinner = { type: 'Dinner' as const, label: 'Dinner', time: '07:30 PM - 08:30 PM' };
 
-    if (mealsPerDay === 3 || slot === 'all') {
-      return allSlots;
+    // 1. Try to get mealsPerDay directly or deduce from text
+    let mealsCount = 0;
+    if (latestSub?.mealsPerDay) {
+      mealsCount = parseInt(String(latestSub.mealsPerDay), 10);
     }
-    if (mealsPerDay === 2) {
-      if (slot.includes('dinner')) {
-        return allSlots.filter(s => s.type !== 'Breakfast');
+
+    const rawSlot = String(latestSub?.slot || '').toLowerCase();
+    const rawSlotLabel = String(latestSub?.slotLabel || '').toLowerCase();
+    const rawMeals = String(latestSub?.meals || '').toLowerCase();
+    const combinedStr = `${rawSlot} ${rawSlotLabel} ${rawMeals}`.trim();
+
+    if (!mealsCount || isNaN(mealsCount)) {
+      if (combinedStr.includes('3 meal') || combinedStr.includes('all meal') || combinedStr === 'all') {
+        mealsCount = 3;
+      } else if (
+        combinedStr.includes('2 meal') || 
+        combinedStr.includes('&') || 
+        combinedStr.includes('breakfast-lunch') || 
+        combinedStr.includes('lunch-dinner') || 
+        combinedStr.includes('breakfast-dinner')
+      ) {
+        mealsCount = 2;
+      } else if (
+        combinedStr.includes('1 meal') || 
+        combinedStr.includes('breakfast') || 
+        combinedStr.includes('lunch') || 
+        combinedStr.includes('dinner')
+      ) {
+        mealsCount = 1;
+      } else {
+        mealsCount = 3; // default fallback
       }
-      return allSlots.filter(s => s.type !== 'Dinner');
     }
-    if (slot.includes('breakfast')) {
-      return allSlots.filter(s => s.type === 'Breakfast');
+
+    // 2. Filter available meal slots based on mealsCount and selected slot
+    if (mealsCount === 1) {
+      if (combinedStr.includes('breakfast')) {
+        return [slotBreakfast];
+      }
+      if (combinedStr.includes('dinner')) {
+        return [slotDinner];
+      }
+      return [slotLunch];
     }
-    if (slot.includes('dinner')) {
-      return allSlots.filter(s => s.type === 'Dinner');
+
+    if (mealsCount === 2) {
+      const hasBreakfast = combinedStr.includes('breakfast');
+      const hasLunch = combinedStr.includes('lunch');
+      const hasDinner = combinedStr.includes('dinner');
+
+      if (hasBreakfast && hasDinner && !hasLunch) {
+        return [slotBreakfast, slotDinner];
+      }
+      if (hasLunch && hasDinner && !hasBreakfast) {
+        return [slotLunch, slotDinner];
+      }
+      // Default 2-meal combination is Breakfast & Lunch
+      return [slotBreakfast, slotLunch];
     }
-    return allSlots.filter(s => s.type === 'Lunch');
+
+    // 3 meals: Breakfast, Lunch & Dinner
+    return [slotBreakfast, slotLunch, slotDinner];
   };
 
   const checkIsMealSkipped = (dateStr: string, mealType: 'Breakfast' | 'Lunch' | 'Dinner', sub?: any) => {
-    const currentDates = sub?.skippedDates || skippedDates;
-    const currentMeals = sub?.skippedMeals || skippedMeals;
+    const latestSub = subscriptionsList.find(s => s.id === sub?.id) || sub;
+    const currentDates = latestSub?.skippedDates || skippedDates;
+    const currentMeals = latestSub?.skippedMeals || skippedMeals;
     return isMealSkipped(currentDates, currentMeals, dateStr, mealType);
   };
 
   const getDateSkipStatus = (dateStr: string, sub?: any): 'none' | 'partial' | 'all' => {
-    const currentDates = sub?.skippedDates || skippedDates;
+    const latestSub = subscriptionsList.find(s => s.id === sub?.id) || sub;
+    const currentDates = latestSub?.skippedDates || skippedDates;
     if (isDateSkipped(currentDates, dateStr)) return 'all';
 
-    const availableSlots = getSubAvailableMealSlots(sub);
+    const availableSlots = getSubAvailableMealSlots(latestSub);
     if (availableSlots.length === 0) return 'none';
 
     let skippedCount = 0;
     for (const s of availableSlots) {
-      if (checkIsMealSkipped(dateStr, s.type, sub)) {
+      if (checkIsMealSkipped(dateStr, s.type, latestSub)) {
         skippedCount++;
       }
     }
@@ -613,6 +640,7 @@ export function ProfilePage() {
   };
 
   const openMealSkipModal = (clickedDate: Date, dateStr: string, sub?: any) => {
+    const latestSub = subscriptionsList.find(s => s.id === sub?.id) || sub || subscriptionsList[0];
     const formattedDate = clickedDate.toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'short',
@@ -623,7 +651,7 @@ export function ProfilePage() {
       date: clickedDate,
       dateStr,
       formattedDate,
-      sub: sub || subscriptionsList[0]
+      sub: latestSub
     });
     setMealSkipModalOpen(true);
   };
@@ -633,11 +661,11 @@ export function ProfilePage() {
     slotType: 'Breakfast' | 'Lunch' | 'Dinner',
     sub?: any
   ) => {
-    const targetSub = sub || subscriptionsList[0];
+    const targetSub = subscriptionsList.find(s => s.id === sub?.id) || sub || subscriptionsList[0];
     if (!targetSub) return;
 
-    const currentDates = targetSub.skippedDates || skippedDates;
-    const currentMeals = targetSub.skippedMeals || skippedMeals;
+    const currentDates = targetSub.skippedDates || skippedDates || [];
+    const currentMeals = targetSub.skippedMeals || skippedMeals || [];
 
     const mealKey = `${targetDateStr}:${slotType}`;
     const isCurrentlySkipped = isMealSkipped(currentDates, currentMeals, targetDateStr, slotType);
@@ -682,6 +710,47 @@ export function ProfilePage() {
 
     setSkippedDates(nextDates);
     setSkippedMeals(nextMeals);
+    setSelectedDateForMeals(prev => prev ? {
+      ...prev,
+      sub: { ...prev.sub, skippedDates: nextDates, skippedMeals: nextMeals }
+    } : null);
+
+    setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
+      ...s, 
+      skippedDates: nextDates,
+      skippedMeals: nextMeals
+    } : s));
+
+    const stored = localStorage.getItem('activeSubscription');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active' || parsed.planName === targetSub.planName) {
+          localStorage.setItem('activeSubscription', JSON.stringify({ 
+            ...parsed, 
+            skippedDates: nextDates,
+            skippedMeals: nextMeals
+          }));
+        }
+      } catch (e) {}
+    }
+
+    // Sync admin subscriptions store in real-time
+    try {
+      const rawAdmin = localStorage.getItem('shift24_admin_subscriptions');
+      if (rawAdmin) {
+        const parsedAdmin = JSON.parse(rawAdmin);
+        const updatedAdmin = parsedAdmin.map((s: any) => {
+          if (s.id === targetSub.id || s.subId === targetSub.id || (targetSub.customerEmail && s.customerEmail === targetSub.customerEmail) || parsedAdmin.length === 1) {
+            return { ...s, skippedDates: nextDates, skippedMeals: nextMeals };
+          }
+          return s;
+        });
+        localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdmin));
+        window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+        window.dispatchEvent(new Event('shift24-orders-updated'));
+      }
+    } catch (e) {}
 
     try {
       const { updateBackendSubscriptionDetails } = await import('../../services/api');
@@ -689,61 +758,23 @@ export function ProfilePage() {
         skippedDates: nextDates,
         skippedMeals: nextMeals
       });
-
-      setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
-        ...s, 
-        skippedDates: nextDates,
-        skippedMeals: nextMeals
-      } : s));
-
-      const stored = localStorage.getItem('activeSubscription');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active') {
-            localStorage.setItem('activeSubscription', JSON.stringify({ 
-              ...parsed, 
-              skippedDates: nextDates,
-              skippedMeals: nextMeals
-            }));
-          }
-        } catch (e) {}
-      }
-
-      // Sync admin subscriptions store in real-time
-      try {
-        const rawAdmin = localStorage.getItem('shift24_admin_subscriptions');
-        if (rawAdmin) {
-          const parsedAdmin = JSON.parse(rawAdmin);
-          const updatedAdmin = parsedAdmin.map((s: any) => {
-            if (s.id === targetSub.id || s.subId === targetSub.id || (targetSub.customerEmail && s.customerEmail === targetSub.customerEmail) || parsedAdmin.length === 1) {
-              return { ...s, skippedDates: nextDates, skippedMeals: nextMeals };
-            }
-            return s;
-          });
-          localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdmin));
-          window.dispatchEvent(new Event('shift24-subscriptions-updated'));
-          window.dispatchEvent(new Event('shift24-orders-updated'));
-        }
-      } catch (e) {}
-
-      if (isCurrentlySkipped) {
-        toast.success(`Restored ${slotType} for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
-      } else {
-        toast.success(`Skipped ${slotType} for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
-      }
     } catch (err) {
-      console.warn('Failed to update meal skip:', err);
-      toast.error('Failed to update meal delivery.');
+      console.warn('Backend sync note:', err);
+    }
+
+    if (isCurrentlySkipped) {
+      toast.success(`Restored ${slotType} for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
+    } else {
+      toast.success(`Skipped ${slotType} for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
     }
   };
 
   const handleSkipEntireDay = async (targetDateStr: string, sub?: any) => {
-    const targetSub = sub || subscriptionsList[0];
+    const targetSub = subscriptionsList.find(s => s.id === sub?.id) || sub || subscriptionsList[0];
     if (!targetSub) return;
 
-    const currentDates = targetSub.skippedDates || skippedDates;
-    const currentMeals = targetSub.skippedMeals || skippedMeals;
+    const currentDates = targetSub.skippedDates || skippedDates || [];
+    const currentMeals = targetSub.skippedMeals || skippedMeals || [];
     const availableSlots = getSubAvailableMealSlots(targetSub);
 
     let nextDates = [...currentDates];
@@ -760,6 +791,46 @@ export function ProfilePage() {
 
     setSkippedDates(nextDates);
     setSkippedMeals(nextMeals);
+    setSelectedDateForMeals(prev => prev ? {
+      ...prev,
+      sub: { ...prev.sub, skippedDates: nextDates, skippedMeals: nextMeals }
+    } : null);
+
+    setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
+      ...s, 
+      skippedDates: nextDates,
+      skippedMeals: nextMeals
+    } : s));
+
+    const stored = localStorage.getItem('activeSubscription');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active' || parsed.planName === targetSub.planName) {
+          localStorage.setItem('activeSubscription', JSON.stringify({ 
+            ...parsed, 
+            skippedDates: nextDates,
+            skippedMeals: nextMeals
+          }));
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const rawAdmin = localStorage.getItem('shift24_admin_subscriptions');
+      if (rawAdmin) {
+        const parsedAdmin = JSON.parse(rawAdmin);
+        const updatedAdmin = parsedAdmin.map((s: any) => {
+          if (s.id === targetSub.id || s.subId === targetSub.id || (targetSub.customerEmail && s.customerEmail === targetSub.customerEmail) || parsedAdmin.length === 1) {
+            return { ...s, skippedDates: nextDates, skippedMeals: nextMeals };
+          }
+          return s;
+        });
+        localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdmin));
+        window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+        window.dispatchEvent(new Event('shift24-orders-updated'));
+      }
+    } catch (e) {}
 
     try {
       const { updateBackendSubscriptionDetails } = await import('../../services/api');
@@ -767,43 +838,65 @@ export function ProfilePage() {
         skippedDates: nextDates,
         skippedMeals: nextMeals
       });
-
-      setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
-        ...s, 
-        skippedDates: nextDates,
-        skippedMeals: nextMeals
-      } : s));
-
-      const stored = localStorage.getItem('activeSubscription');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          localStorage.setItem('activeSubscription', JSON.stringify({ 
-            ...parsed, 
-            skippedDates: nextDates,
-            skippedMeals: nextMeals
-          }));
-        } catch (e) {}
-      }
-
-      toast.success(`Skipped all meals for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
     } catch (err) {
-      toast.error('Failed to update delivery');
+      console.warn('Backend sync note:', err);
     }
+
+    toast.success(`Skipped all meals for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
   };
 
   const handleRestoreEntireDay = async (targetDateStr: string, sub?: any) => {
-    const targetSub = sub || subscriptionsList[0];
+    const targetSub = subscriptionsList.find(s => s.id === sub?.id) || sub || subscriptionsList[0];
     if (!targetSub) return;
 
-    const currentDates = targetSub.skippedDates || skippedDates;
-    const currentMeals = targetSub.skippedMeals || skippedMeals;
+    const currentDates = targetSub.skippedDates || skippedDates || [];
+    const currentMeals = targetSub.skippedMeals || skippedMeals || [];
 
     const nextDates = currentDates.filter(d => !isDateSkipped([d], targetDateStr));
     const nextMeals = currentMeals.filter(m => !String(m).toLowerCase().includes(targetDateStr.toLowerCase()));
 
     setSkippedDates(nextDates);
     setSkippedMeals(nextMeals);
+    setSelectedDateForMeals(prev => prev ? {
+      ...prev,
+      sub: { ...prev.sub, skippedDates: nextDates, skippedMeals: nextMeals }
+    } : null);
+
+    setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
+      ...s, 
+      skippedDates: nextDates,
+      skippedMeals: nextMeals
+    } : s));
+
+    const stored = localStorage.getItem('activeSubscription');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.id === targetSub.id || parsed.subId === targetSub.id || targetSub.id === 'sub_active' || parsed.planName === targetSub.planName) {
+          localStorage.setItem('activeSubscription', JSON.stringify({ 
+            ...parsed, 
+            skippedDates: nextDates,
+            skippedMeals: nextMeals
+          }));
+        }
+      } catch (e) {}
+    }
+
+    try {
+      const rawAdmin = localStorage.getItem('shift24_admin_subscriptions');
+      if (rawAdmin) {
+        const parsedAdmin = JSON.parse(rawAdmin);
+        const updatedAdmin = parsedAdmin.map((s: any) => {
+          if (s.id === targetSub.id || s.subId === targetSub.id || (targetSub.customerEmail && s.customerEmail === targetSub.customerEmail) || parsedAdmin.length === 1) {
+            return { ...s, skippedDates: nextDates, skippedMeals: nextMeals };
+          }
+          return s;
+        });
+        localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdmin));
+        window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+        window.dispatchEvent(new Event('shift24-orders-updated'));
+      }
+    } catch (e) {}
 
     try {
       const { updateBackendSubscriptionDetails } = await import('../../services/api');
@@ -811,29 +904,11 @@ export function ProfilePage() {
         skippedDates: nextDates,
         skippedMeals: nextMeals
       });
-
-      setSubscriptionsList(prev => prev.map(s => s.id === targetSub.id ? { 
-        ...s, 
-        skippedDates: nextDates,
-        skippedMeals: nextMeals
-      } : s));
-
-      const stored = localStorage.getItem('activeSubscription');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          localStorage.setItem('activeSubscription', JSON.stringify({ 
-            ...parsed, 
-            skippedDates: nextDates,
-            skippedMeals: nextMeals
-          }));
-        } catch (e) {}
-      }
-
-      toast.success(`Restored all meals for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
     } catch (err) {
-      toast.error('Failed to restore delivery');
+      console.warn('Backend sync note:', err);
     }
+
+    toast.success(`Restored all meals for ${selectedDateForMeals?.formattedDate || targetDateStr}`);
   };
 
   const handleDayClick = async (year: number, month: number, day: number, sub?: any) => {
@@ -912,6 +987,87 @@ export function ProfilePage() {
   const [subscriptionsList, setSubscriptionsList] = useState<any[]>([]);
   const [loadingSubs, setLoadingSubs] = useState(true);
 
+  const getSubSchedule = (sub: any) => {
+    const latestSub = subscriptionsList.find(s => s.id === sub?.id) || sub;
+    const currentSkippedDates = latestSub?.skippedDates || skippedDates || [];
+
+    // Parse start date
+    let subStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (latestSub?.startDate && latestSub.startDate !== 'Recent') {
+      const cleanStart = String(latestSub.startDate).split('T')[0];
+      const parts = cleanStart.split('-');
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (!isNaN(d.getTime())) subStart = d;
+      } else {
+        const parsed = new Date(latestSub.startDate);
+        if (!isNaN(parsed.getTime())) {
+          subStart = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+        }
+      }
+    }
+
+    const totalDays = Number(latestSub?.durationDays) || parseInt(String(latestSub?.duration || '')) || 26;
+
+    // Build active dates by walking from subStart until totalDays are fulfilled
+    const subActiveDates = new Set<string>();
+    let temp = new Date(subStart);
+    let daysCounted = 0;
+    let subEndDate = new Date(subStart);
+    let loopCount = 0;
+
+    while (daysCounted < totalDays && loopCount < 365) {
+      loopCount++;
+      const mPadded = String(temp.getMonth() + 1).padStart(2, '0');
+      const dPadded = String(temp.getDate()).padStart(2, '0');
+      const dateStr = `${temp.getFullYear()}-${mPadded}-${dPadded}`;
+
+      let isPaused = false;
+      if (latestSub?.pauseStartDate) {
+        const pStartISO = String(latestSub.pauseStartDate).trim().split('T')[0];
+        const pEndISO = latestSub?.pauseEndDate ? String(latestSub.pauseEndDate).trim().split('T')[0] : null;
+        isPaused = pEndISO ? (dateStr >= pStartISO && dateStr <= pEndISO) : (dateStr >= pStartISO);
+      }
+
+      const isFullSkip = isDateSkipped(currentSkippedDates, dateStr);
+
+      if (!isFullSkip && !isPaused) {
+        subActiveDates.add(dateStr);
+        daysCounted++;
+        subEndDate = new Date(temp);
+      }
+
+      temp.setDate(temp.getDate() + 1);
+    }
+
+    // Safety fallback: If active subscription's calculated end date is in the past,
+    // extend active dates forward from today so the user can manage upcoming deliveries!
+    const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    if (latestSub?.status === 'Active' && subEndDate < todayDateOnly) {
+      subStart = new Date(todayDateOnly);
+      subActiveDates.clear();
+      temp = new Date(subStart);
+      daysCounted = 0;
+      loopCount = 0;
+      while (daysCounted < totalDays && loopCount < 365) {
+        loopCount++;
+        const mPadded = String(temp.getMonth() + 1).padStart(2, '0');
+        const dPadded = String(temp.getDate()).padStart(2, '0');
+        const dateStr = `${temp.getFullYear()}-${mPadded}-${dPadded}`;
+
+        const isFullSkip = isDateSkipped(currentSkippedDates, dateStr);
+        if (!isFullSkip) {
+          subActiveDates.add(dateStr);
+          daysCounted++;
+          subEndDate = new Date(temp);
+        }
+        temp.setDate(temp.getDate() + 1);
+      }
+    }
+
+    return { subStart, subEndDate, subActiveDates, totalDays, currentSkippedDates };
+  };
+
   // Pause Delivery with Date Selection Modal State
   const [pausingSub, setPausingSub] = useState<any | null>(null);
   const [pauseStartDate, setPauseStartDate] = useState<string>('');
@@ -946,65 +1102,45 @@ export function ProfilePage() {
     setPauseCustomResumeDate(sub.pauseEndDate || nextWeekStr);
   };
 
-  const handleResumeDelivery = async (sub: any) => {
-    if (!window.confirm(`Resume meal deliveries for ${sub.planName}? Your scheduled meal preparation will restart.`)) {
-      return;
-    }
-
-    try {
-      const { updateBackendSubscriptionStatus } = await import('../../services/api');
-      await updateBackendSubscriptionStatus(sub.id, 'Active');
-
-      setSubscriptionsList(prev => prev.map(s => s.id === sub.id ? { 
-        ...s, 
-        status: 'Active',
-        pauseStartDate: null,
-        pauseEndDate: null,
-        nextDelivery: 'Tomorrow, 07:30 AM'
-      } : s));
-
-      const stored = localStorage.getItem('activeSubscription');
-      if (stored) {
+  const handleResumeDelivery = (sub: any) => {
+    showConfirmToast({
+      title: `Resume deliveries for ${sub.planName}?`,
+      description: 'Your scheduled meal deliveries will restart starting tomorrow morning.',
+      confirmText: 'Resume Deliveries',
+      cancelText: 'Keep Paused',
+      confirmButtonClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+      iconBgClass: 'bg-emerald-50 text-emerald-600 border border-emerald-100',
+      onConfirm: async () => {
         try {
-          const parsed = JSON.parse(stored);
-          if (parsed.id === sub.id || parsed.subId === sub.id || sub.id === 'sub_active') {
-            parsed.status = 'Active';
-            parsed.pauseStartDate = null;
-            parsed.pauseEndDate = null;
-            parsed.nextDelivery = 'Tomorrow, 07:30 AM';
-            localStorage.setItem('activeSubscription', JSON.stringify(parsed));
-          }
-        } catch (e) {}
-      }
+          const { updateBackendSubscriptionStatus } = await import('../../services/api');
+          await updateBackendSubscriptionStatus(sub.id, 'Active');
 
-      // Also update shift24_admin_subscriptions in localStorage
-      try {
-        const rawAdminSubs = localStorage.getItem('shift24_admin_subscriptions');
-        if (rawAdminSubs) {
-          const adminSubs = JSON.parse(rawAdminSubs);
-          const updatedAdminSubs = adminSubs.map((s: any) => {
-            if (s.id === sub.id || s.subId === sub.id || (sub.email && s.customerEmail === sub.email)) {
-              return {
-                ...s,
-                status: 'Active',
-                pauseStartDate: null,
-                pauseEndDate: null,
-                nextDelivery: 'Tomorrow, 07:30 AM'
-              };
-            }
-            return s;
-          });
-          localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(updatedAdminSubs));
+          setSubscriptionsList(prev => prev.map(s => s.id === sub.id ? { 
+            ...s, 
+            status: 'Active',
+            pauseStartDate: null,
+            pauseEndDate: null,
+            nextDelivery: 'Tomorrow, 07:30 AM'
+          } : s));
+
+          // Also update global store
+          const allSubs = getAdminSubscriptions();
+          const updatedSubs = allSubs.map(s => s.id === sub.id ? {
+            ...s,
+            status: 'Active' as const,
+            pauseStartDate: null,
+            pauseEndDate: null,
+            nextDelivery: 'Tomorrow, 07:30 AM'
+          } : s);
+          saveAdminSubscriptions(updatedSubs);
+          window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+
+          toast.success('Deliveries resumed! Your daily meal routine is active.');
+        } catch (err) {
+          toast.error('Failed to resume delivery');
         }
-      } catch (e) {}
-
-      window.dispatchEvent(new Event('shift24-subscriptions-updated'));
-      window.dispatchEvent(new Event('shift24-orders-updated'));
-
-      toast.success('Deliveries resumed! Your daily meal routine is active.');
-    } catch (err: any) {
-      toast.error('Failed to resume delivery');
-    }
+      }
+    });
   };
 
   const handleConfirmPause = async () => {
@@ -1452,7 +1588,10 @@ export function ProfilePage() {
                 endDate: s.endDate || 'Ongoing',
                 duration: s.duration || `${s.durationDays || 30} Days`,
                 durationDays: s.durationDays || 26,
-                meals: s.slotLabel ? `${s.mealsPerDay || 1} Meal (${s.slotLabel})` : 'Daily Meals',
+                meals: s.slotLabel ? (s.slotLabel.includes('Meal') ? s.slotLabel : `${s.mealsPerDay || 1} ${Number(s.mealsPerDay) === 1 ? 'Meal' : 'Meals'} (${s.slotLabel})`) : (s.meals || `${s.mealsPerDay || 3} Meals Daily`),
+                mealsPerDay: s.mealsPerDay ? String(s.mealsPerDay) : undefined,
+                slot: s.slot || undefined,
+                slotLabel: s.slotLabel || undefined,
                 address: s.address || 'Delivery Address',
                 pauseStartDate: s.pauseStartDate || null,
                 pauseEndDate: s.pauseEndDate || null,
@@ -1520,7 +1659,10 @@ export function ProfilePage() {
           endDate: localSub.endDate || 'Ongoing',
           duration: localSub.duration || '7 Days',
           durationDays: localSub.durationDays || 26,
-          meals: localSub.meals || '1 Meal Daily',
+          meals: localSub.slotLabel || localSub.meals || 'Daily Meals',
+          mealsPerDay: localSub.mealsPerDay ? String(localSub.mealsPerDay) : undefined,
+          slot: localSub.slot || undefined,
+          slotLabel: localSub.slotLabel || undefined,
           address: subAddress,
           pauseStartDate: localSub.pauseStartDate || null,
           pauseEndDate: localSub.pauseEndDate || null,
@@ -1662,7 +1804,7 @@ export function ProfilePage() {
                         </div>
                         <h3 className="text-lg font-bold text-slate-900 mb-1">No Active Subscriptions Yet</h3>
                         <p className="text-slate-500 text-sm max-w-md mx-auto mb-6">
-                          You haven't subscribed to any meal routine yet. Choose from Weight Loss, Balance Weight, or Weight Gain plans to get fresh chef-cooked meals delivered daily.
+                          You haven't subscribed to any meal routine yet. Choose from our 1-Day Trial, 7-Day Plan, or 30-Day Plan to get fresh chef-cooked meals delivered daily.
                         </p>
                         <Link 
                           to="/subscribe" 
@@ -1849,123 +1991,135 @@ export function ProfilePage() {
                                     </div>
                                     
                                     <div className="bg-slate-50/50 rounded-2xl p-4 md:p-6 border border-slate-200">
-                                      <div className="flex items-center justify-between mb-6 px-2">
-                                        <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}}>
-                                          <ChevronLeft className="w-5 h-5 text-slate-600" />
-                                        </button>
-                                        <span className="font-bold text-slate-800 text-lg">{monthName}</span>
-                                        <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}}>
-                                          <ChevronRight className="w-5 h-5 text-slate-600" />
-                                        </button>
-                                      </div>
-                                      <div className="grid grid-cols-7 gap-2 md:gap-3 text-center mb-2">
-                                        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
-                                          <div key={d} className="text-xs font-bold text-slate-400 py-1">{d}</div>
-                                        ))}
-                                      </div>
-                                      <div className="grid grid-cols-7 gap-2 md:gap-3 text-center">
-                                        {Array.from({ length: firstDay }).map((_, i) => (
-                                          <div key={`empty-${i}`} className="p-2 md:p-3"></div>
-                                        ))}
-                                        {Array.from({ length: daysInMonth }).map((_, i) => {
-                                          const day = i + 1;
-                                          const year = currentMonth.getFullYear();
-                                          const month = currentMonth.getMonth();
-                                          const mPadded = String(month + 1).padStart(2, '0');
-                                          const dPadded = String(day).padStart(2, '0');
-                                          const dateStr = `${year}-${mPadded}-${dPadded}`;
-                                          const clickedDate = new Date(year, month, day);
-                                          const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-                                          
-                                          const isPast = clickedDate < todayDateOnly;
-                                          const skipStatus = getDateSkipStatus(dateStr, sub);
-                                          const isFullSkipped = skipStatus === 'all';
-                                          const isPartialSkipped = skipStatus === 'partial';
-                                          const isActive = activeDates.has(dateStr);
-                                          const isEditable = !isPast && (isActive || isFullSkipped || isPartialSkipped);
-                                          
-                                          let dayClass = 'bg-white text-slate-400 border-slate-100 opacity-50';
-                                          if (isFullSkipped) {
-                                            dayClass = 'bg-rose-50 text-rose-700 border-2 border-rose-300 font-bold shadow-xs';
-                                          } else if (isPartialSkipped) {
-                                            dayClass = 'bg-amber-50 text-amber-900 border-2 border-amber-400 font-bold shadow-xs';
-                                          } else if (isActive) {
-                                            if (isPast) {
-                                              dayClass = 'bg-emerald-50 text-emerald-600 border border-emerald-200 font-bold';
-                                            } else {
-                                              dayClass = 'bg-emerald-500 text-white border border-emerald-600 font-bold shadow-sm';
-                                            }
-                                          } else if (!isPast) {
-                                            dayClass = 'bg-white text-slate-500 border border-slate-200';
-                                          }
+                                       {(() => {
+                                         const { subStart, subEndDate, subActiveDates, currentSkippedDates } = getSubSchedule(sub);
+                                         return (
+                                           <>
+                                             <div className="flex items-center justify-between mb-6 px-2">
+                                               <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}}>
+                                                 <ChevronLeft className="w-5 h-5 text-slate-600" />
+                                               </button>
+                                               <span className="font-bold text-slate-800 text-lg">{monthName}</span>
+                                               <button className="p-2 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}}>
+                                                 <ChevronRight className="w-5 h-5 text-slate-600" />
+                                               </button>
+                                             </div>
+                                             <div className="grid grid-cols-7 gap-2 md:gap-3 text-center mb-2">
+                                               {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                                                 <div key={d} className="text-xs font-bold text-slate-400 py-1">{d}</div>
+                                               ))}
+                                             </div>
+                                             <div className="grid grid-cols-7 gap-2 md:gap-3 text-center">
+                                               {Array.from({ length: firstDay }).map((_, i) => (
+                                                 <div key={`empty-${i}`} className="p-2 md:p-3"></div>
+                                               ))}
+                                               {Array.from({ length: daysInMonth }).map((_, i) => {
+                                                 const day = i + 1;
+                                                 const year = currentMonth.getFullYear();
+                                                 const month = currentMonth.getMonth();
+                                                 const mPadded = String(month + 1).padStart(2, '0');
+                                                 const dPadded = String(day).padStart(2, '0');
+                                                 const dateStr = `${year}-${mPadded}-${dPadded}`;
+                                                 const clickedDate = new Date(year, month, day);
+                                                 const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                                                 
+                                                 const isPast = clickedDate < todayDateOnly;
+                                                 const skipStatus = getDateSkipStatus(dateStr, sub);
+                                                 const isFullSkipped = skipStatus === 'all';
+                                                 const isPartialSkipped = skipStatus === 'partial';
+                                                 const isActive = subActiveDates.has(dateStr);
+                                                 const isWithinPlan = clickedDate >= subStart && clickedDate <= subEndDate;
+                                                 const isEditable = !isPast && sub.status !== 'Cancelled' && (isActive || isFullSkipped || isPartialSkipped || isWithinPlan);
+                                                 
+                                                 let dayClass = 'bg-white text-slate-400 border-slate-100 opacity-40';
+                                                 if (isFullSkipped) {
+                                                   dayClass = 'bg-rose-50 text-rose-700 border-2 border-rose-300 font-bold shadow-xs';
+                                                 } else if (isPartialSkipped) {
+                                                   dayClass = 'bg-amber-50 text-amber-900 border-2 border-amber-400 font-bold shadow-xs';
+                                                 } else if (isActive) {
+                                                   if (isPast) {
+                                                     dayClass = 'bg-emerald-50 text-emerald-600 border border-emerald-200 font-bold';
+                                                   } else {
+                                                     dayClass = 'bg-emerald-500 text-white border border-emerald-600 font-bold shadow-sm';
+                                                   }
+                                                 } else if (!isPast && isWithinPlan) {
+                                                   dayClass = 'bg-white text-slate-700 border border-slate-200 hover:border-emerald-300';
+                                                 }
 
-                                          return (
-                                            <div 
-                                              key={day}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (isEditable) openMealSkipModal(clickedDate, dateStr, sub);
-                                              }}
-                                              className={`p-1.5 md:p-2 rounded-xl border text-sm flex flex-col items-center justify-center transition-all duration-300 min-h-[44px] md:min-h-[50px] relative ${dayClass} ${isEditable ? 'cursor-pointer hover:scale-105 hover:shadow-md' : ''}`}
-                                              title={isFullSkipped ? 'All meals skipped' : isPartialSkipped ? 'Specific meal(s) skipped' : 'Tap to manage meals'}
-                                            >
-                                              <span className="font-bold text-xs md:text-sm">{day}</span>
-                                              {isFullSkipped && (
-                                                <span className="text-[9px] font-black uppercase text-rose-600 leading-none mt-0.5">Skip</span>
-                                              )}
-                                              {isPartialSkipped && (
-                                                <span className="text-[8px] font-black uppercase text-amber-800 leading-none mt-0.5 bg-amber-200/60 px-1 py-0.2 rounded">Meal</span>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
+                                                 return (
+                                                   <div 
+                                                     key={day}
+                                                     onClick={(e) => {
+                                                       e.stopPropagation();
+                                                       if (isEditable) openMealSkipModal(clickedDate, dateStr, sub);
+                                                     }}
+                                                     className={`p-1.5 md:p-2 rounded-xl border text-sm flex flex-col items-center justify-center transition-all duration-300 min-h-[44px] md:min-h-[50px] relative ${dayClass} ${isEditable ? 'cursor-pointer hover:scale-105 hover:shadow-md' : 'cursor-default'}`}
+                                                     title={isFullSkipped ? 'All meals skipped - tap to manage' : isPartialSkipped ? 'Specific meal(s) skipped - tap to manage' : isEditable ? 'Tap to manage meals or skip delivery' : ''}
+                                                   >
+                                                     <span className="font-bold text-xs md:text-sm">{day}</span>
+                                                     {isFullSkipped && (
+                                                       <span className="text-[9px] font-black uppercase text-rose-600 leading-none mt-0.5">Skip</span>
+                                                     )}
+                                                     {isPartialSkipped && (
+                                                       <span className="text-[8px] font-black uppercase text-amber-800 leading-none mt-0.5 bg-amber-200/60 px-1 py-0.2 rounded">Meal</span>
+                                                     )}
+                                                   </div>
+                                                 );
+                                               })}
+                                             </div>
 
-                                      <div className="mt-8 p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
-                                        {/* Calendar Skip Status Legend */}
-                                        <div className="mb-4 pb-4 border-b border-slate-200/80 flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-slate-600">
-                                          <div className="flex items-center gap-1.5">
-                                            <div className="w-3.5 h-3.5 rounded-md bg-emerald-500 border border-emerald-600"></div>
-                                            <span>All Meals Active</span>
-                                          </div>
-                                          <div className="flex items-center gap-1.5">
-                                            <div className="w-3.5 h-3.5 rounded-md bg-amber-50 border-2 border-amber-400"></div>
-                                            <span>Specific Meal(s) Skipped</span>
-                                          </div>
-                                          <div className="flex items-center gap-1.5">
-                                            <div className="w-3.5 h-3.5 rounded-md bg-rose-50 border-2 border-rose-300"></div>
-                                            <span>Full Day Skipped</span>
-                                          </div>
-                                        </div>
+                                             <div className="mt-8 p-5 bg-white rounded-xl border border-slate-200 shadow-sm">
+                                               {/* Calendar Skip Status Legend */}
+                                               <div className="mb-4 pb-4 border-b border-slate-200/80 flex flex-wrap items-center justify-center gap-4 text-xs font-semibold text-slate-600">
+                                                 <div className="flex items-center gap-1.5">
+                                                   <div className="w-3.5 h-3.5 rounded-md bg-emerald-500 border border-emerald-600"></div>
+                                                   <span>Active Delivery</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-1.5">
+                                                   <div className="w-3.5 h-3.5 rounded-md bg-amber-50 border-2 border-amber-400"></div>
+                                                   <span>Specific Meal(s) Skipped</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-1.5">
+                                                   <div className="w-3.5 h-3.5 rounded-md bg-rose-50 border-2 border-rose-300"></div>
+                                                   <span>Full Day Skipped</span>
+                                                 </div>
+                                               </div>
 
-                                        <div className="flex justify-between items-center mb-3">
-                                          <span className="text-slate-600 text-sm font-medium">Start Date:</span>
-                                          <span className="text-slate-900 font-bold text-sm">{startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                          <span className="text-slate-600 text-sm font-medium">End Date:</span>
-                                          <span className="text-emerald-700 font-bold text-sm">{endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                                        </div>
-                                        {skippedDates.length > 0 && (
-                                          <div className="mt-4 pt-4 border-t border-slate-200">
-                                            <p className="text-xs text-red-600 font-medium mb-2">
-                                              Plan extended by {skippedDates.length} skipped day{skippedDates.length > 1 ? 's' : ''}.
-                                            </p>
-                                            <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                                              Extended dates: <span className="text-emerald-700 font-bold">{
-                                                Array.from(activeDates).slice(-skippedDates.length).map(d => {
-                                                  const [y, m, date] = d.split('-');
-                                                  return new Date(Number(y), Number(m), Number(date)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                                                }).join(', ')
-                                              }</span>
-                                            </p>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
+                                               <div className="flex justify-between items-center mb-3">
+                                                 <span className="text-slate-600 text-sm font-medium">Start Date:</span>
+                                                 <span className="text-slate-900 font-bold text-sm">
+                                                   {subStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                 </span>
+                                               </div>
+                                               <div className="flex justify-between items-center">
+                                                 <span className="text-slate-600 text-sm font-medium">End Date:</span>
+                                                 <span className="text-emerald-700 font-bold text-sm">
+                                                   {subEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                 </span>
+                                               </div>
+                                               {currentSkippedDates.length > 0 && (
+                                                 <div className="mt-4 pt-4 border-t border-slate-200">
+                                                   <p className="text-xs text-rose-600 font-medium mb-2">
+                                                     Plan extended by {currentSkippedDates.length} skipped day{currentSkippedDates.length > 1 ? 's' : ''}.
+                                                   </p>
+                                                   <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                                                     Extended dates: <span className="text-emerald-700 font-bold">{
+                                                       Array.from(subActiveDates).slice(-currentSkippedDates.length).map(d => {
+                                                         const [y, m, date] = d.split('-');
+                                                         return new Date(Number(y), Number(m) - 1, Number(date)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                                                       }).join(', ')
+                                                     }</span>
+                                                   </p>
+                                                 </div>
+                                               )}
+                                             </div>
+                                           </>
+                                         );
+                                       })()}
+                                     </div>
+                                   </div>
 
-                                  {sub.status !== 'Cancelled' && (
+                                   {sub.status !== 'Cancelled' && (
                                     <div className="flex flex-wrap gap-3 mt-8">
                                       <button 
                                         type="button"
@@ -3011,6 +3165,11 @@ export function ProfilePage() {
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
                       {selectedDateForMeals.sub?.planName || 'Meal Plan'}
                     </span>
+                    {(selectedDateForMeals.sub?.slotLabel || selectedDateForMeals.sub?.meals) && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-700/90 text-emerald-300 border border-emerald-500/30">
+                        {selectedDateForMeals.sub.slotLabel || selectedDateForMeals.sub.meals}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-300 mt-0.5 flex items-center gap-1.5 font-medium">
                     <CalendarIcon className="w-3.5 h-3.5 text-emerald-400" />
@@ -3030,30 +3189,76 @@ export function ProfilePage() {
             {/* Body */}
             <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Quick action buttons */}
-              <div className="flex items-center justify-between gap-2 p-1.5 bg-slate-100 rounded-2xl">
-                <button
-                  type="button"
-                  onClick={() => handleSkipEntireDay(selectedDateForMeals.dateStr, selectedDateForMeals.sub)}
-                  className="flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200/80 hover:border-rose-200 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <CalendarX className="w-3.5 h-3.5 text-rose-500" />
-                  <span>Skip All Meals Today</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleRestoreEntireDay(selectedDateForMeals.dateStr, selectedDateForMeals.sub)}
-                  className="flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200/80 hover:border-emerald-200 shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Deliver All Meals</span>
-                </button>
-              </div>
+              {(() => {
+                const availableSlots = getSubAvailableMealSlots(selectedDateForMeals.sub);
+                const allSkipped = availableSlots.length > 0 && availableSlots.every(s => 
+                  checkIsMealSkipped(selectedDateForMeals.dateStr, s.type, selectedDateForMeals.sub)
+                );
+                const allActive = availableSlots.length > 0 && availableSlots.every(s => 
+                  !checkIsMealSkipped(selectedDateForMeals.dateStr, s.type, selectedDateForMeals.sub)
+                );
+
+                const skipLabel = availableSlots.length === 1 
+                  ? `Skip Day (${availableSlots[0].label})`
+                  : availableSlots.length === 2
+                  ? 'Skip Both Meals'
+                  : 'Skip Full Day (All 3 Meals)';
+
+                const deliverLabel = availableSlots.length === 1
+                  ? `Deliver Day (${availableSlots[0].label})`
+                  : availableSlots.length === 2
+                  ? 'Deliver Both Meals'
+                  : 'Deliver Full Day (All 3 Meals)';
+
+                return (
+                  <div className="flex items-center justify-between gap-2 p-1.5 bg-slate-100 rounded-2xl">
+                    <button
+                      type="button"
+                      onClick={() => handleSkipEntireDay(selectedDateForMeals.dateStr, selectedDateForMeals.sub)}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        allSkipped
+                          ? 'bg-rose-600 text-white shadow-xs'
+                          : 'bg-white hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200/80 hover:border-rose-200 shadow-2xs'
+                      }`}
+                    >
+                      <CalendarX className={`w-3.5 h-3.5 ${allSkipped ? 'text-white' : 'text-rose-500'}`} />
+                      <span>{skipLabel}</span>
+                      {allSkipped && <span className="text-[10px] bg-rose-700/80 px-1.5 py-0.2 rounded font-black uppercase">Active</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRestoreEntireDay(selectedDateForMeals.dateStr, selectedDateForMeals.sub)}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        allActive
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-white hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200/80 hover:border-emerald-200 shadow-2xs'
+                      }`}
+                    >
+                      <CheckCircle2 className={`w-3.5 h-3.5 ${allActive ? 'text-white' : 'text-emerald-600'}`} />
+                      <span>{deliverLabel}</span>
+                      {allActive && <span className="text-[10px] bg-emerald-700/80 px-1.5 py-0.2 rounded font-black uppercase">Active</span>}
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Meal cards list */}
               <div className="space-y-2.5">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">
-                  Available Meal Deliveries for this Date
-                </p>
+                {(() => {
+                  const availableSlots = getSubAvailableMealSlots(selectedDateForMeals.sub);
+                  return (
+                    <div className="flex items-center justify-between px-1">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Scheduled Meals ({availableSlots.length} {availableSlots.length === 1 ? 'Delivery' : 'Deliveries'})
+                      </p>
+                      {(selectedDateForMeals.sub?.slotLabel || selectedDateForMeals.sub?.meals) && (
+                        <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg">
+                          {selectedDateForMeals.sub.slotLabel || selectedDateForMeals.sub.meals}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
                 {getSubAvailableMealSlots(selectedDateForMeals.sub).map((slot) => {
                   const isSkipped = checkIsMealSkipped(selectedDateForMeals.dateStr, slot.type, selectedDateForMeals.sub);
                   

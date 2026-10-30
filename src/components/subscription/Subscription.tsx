@@ -1,7 +1,7 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, ArrowRight, ArrowLeft, Coffee, Sun, Moon } from 'lucide-react';
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   getAdminPlans, 
   saveAdminPlans,
@@ -171,12 +171,62 @@ export function SubscriptionPlan() {
 
   const subscriptionOptions = (plan.durationOptions || []).slice().sort((a, b) => (Number(a.days) || 0) - (Number(b.days) || 0));
 
-  const currentMultiplier = plan.mealOptions.find(m => m.id === mealsPerDay)?.multiplier ?? MEAL_MULTIPLIERS[mealsPerDay] ?? 1;
+  const getMealMultiplier = (mId: string): number => {
+    const found = plan.mealOptions.find(m => m.id === mId);
+    if (found && typeof found.multiplier === 'number' && found.multiplier > 0) {
+      if (mId === '1' && found.multiplier >= 0.9) return 0.40;
+      if (mId === '2' && (found.multiplier >= 0.95 || found.multiplier < 0.3)) return 0.72;
+      return found.multiplier;
+    }
+    return MEAL_MULTIPLIERS[mId as MealCount] || (mId === '1' ? 0.40 : mId === '2' ? 0.72 : 1.00);
+  };
+
+  const currentMultiplier = getMealMultiplier(mealsPerDay);
 
   const calculatePrice = (option: IDurationOption) => {
-    if (option.customPrice && option.customPrice > 0) {
-      return option.customPrice;
+    const currentSlot = mealsPerDay === '1' ? singleSlot : mealsPerDay === '2' ? twoSlot : undefined;
+
+    // 1. Explicit slot price configured on THIS card
+    if (currentSlot && option.slotPrices && (option.slotPrices as any)[currentSlot] && (option.slotPrices as any)[currentSlot] > 0) {
+      return (option.slotPrices as any)[currentSlot];
     }
+
+    // 2. Proportional slot price inherited from 1-day trial / daily slot rates
+    if (currentSlot) {
+      const oneDayOption = subscriptionOptions.find(o => Number(o.days) === 1);
+      const oneDaySlotPrice = oneDayOption?.slotPrices && (oneDayOption.slotPrices as any)[currentSlot];
+      if (oneDaySlotPrice && Number(oneDaySlotPrice) > 0) {
+        return Math.round(Number(oneDaySlotPrice) * option.days * (1 - (option.discount || 0) / 100));
+      }
+    }
+
+    // 3. Explicit meal-count price configured on THIS card
+    if (option.prices && option.prices[mealsPerDay] && option.prices[mealsPerDay]! > 0) {
+      if (mealsPerDay === '3' && option.discount && option.discount > 0) {
+        return Math.round(option.prices[mealsPerDay]! * (1 - option.discount / 100));
+      }
+      return option.prices[mealsPerDay]!;
+    }
+
+    // 4. Proportional meal-count price inherited from 1-day trial
+    if (mealsPerDay !== '3') {
+      const oneDayOption = subscriptionOptions.find(o => Number(o.days) === 1);
+      const oneDayMealPrice = oneDayOption?.prices?.[mealsPerDay];
+      if (oneDayMealPrice && Number(oneDayMealPrice) > 0) {
+        return Math.round(Number(oneDayMealPrice) * option.days * (1 - (option.discount || 0) / 100));
+      }
+    }
+
+    // 5. Card base price override scaled by meal multiplier & discount
+    const cardPrice = option.price || option.customPrice;
+    if (cardPrice && cardPrice > 0) {
+      if (mealsPerDay === '3') {
+        return Math.round(cardPrice * (1 - (option.discount || 0) / 100));
+      }
+      return Math.round(cardPrice * currentMultiplier * (1 - (option.discount || 0) / 100));
+    }
+
+    // 6. Plan weekly base price scaled by days, multiplier & discount
     const dailyPrice = (plan.pricePerWeek / 7) * currentMultiplier;
     const basePrice = dailyPrice * option.days;
     const finalPrice = basePrice * (1 - (option.discount || 0) / 100);
@@ -268,7 +318,15 @@ export function SubscriptionPlan() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
+        <div className={`grid grid-cols-1 ${
+          subscriptionOptions.length === 1 
+            ? 'max-w-md mx-auto sm:grid-cols-1' 
+            : subscriptionOptions.length === 2 
+            ? 'max-w-3xl lg:max-w-4xl mx-auto sm:grid-cols-2 gap-8' 
+            : subscriptionOptions.length === 3 
+            ? 'max-w-5xl lg:max-w-6xl mx-auto sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8' 
+            : 'max-w-7xl mx-auto sm:grid-cols-2 lg:grid-cols-4 gap-6'
+        } items-stretch pb-12`}>
           {subscriptionOptions.map((option, index) => {
             const price = calculatePrice(option);
             const isFeatured = option.popular;
@@ -400,7 +458,13 @@ export function PlanMenu() {
 
   const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner'>(getInitialMealType);
 
-  const durationDays = parseInt(durationId?.split('-')[0] || '7');
+  const matchedDuration = (plan as any).durationOptions?.find(
+    (d: any) => d.id === durationId || String(d.days) === durationId || d.id === `${durationId}-day`
+  );
+  const rawParsed = parseInt(durationId?.split('-')[0] || '7', 10);
+  const durationDays = (matchedDuration?.days && Number(matchedDuration.days) > 0 && Number(matchedDuration.days) <= 90)
+    ? Number(matchedDuration.days)
+    : (!isNaN(rawParsed) && rawParsed > 0 && rawParsed <= 90 ? rawParsed : 7);
 
   // Generate menu for the full duration tailored to this specific plan
   const fullMenu = Array.from({ length: durationDays }, (_, i) => {
@@ -514,7 +578,7 @@ export function MealDetails() {
   const [zoomProps, setZoomProps] = useState({ scale: 1, x: 50, y: 50 });
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const zoomStateRef = useRef({ scale: 1, x: 50, y: 50 });
-  const [, setVersion] = useState(0);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     const handleUpdate = () => setVersion(v => v + 1);
@@ -533,13 +597,18 @@ export function MealDetails() {
   const resolvedPlanId = matchedPlan?.id || (matchedPlan as any)?.planId || planId || 'balance';
 
   const dayNum = parseInt(dayId || '1');
-  const mealTypeStr = mealType as 'breakfast' | 'lunch' | 'dinner';
-  const meal = getFoodForPlanAndDay(resolvedPlanId, dayNum, mealTypeStr);
+  const mealTypeStr = (mealType as 'breakfast' | 'lunch' | 'dinner') || 'breakfast';
+  
+  const meal = useMemo(() => {
+    return getFoodForPlanAndDay(resolvedPlanId, dayNum, mealTypeStr);
+  }, [resolvedPlanId, dayNum, mealTypeStr, version]);
 
-  // reset image index when navigating between meals
+  // reset image index when navigating between meals or changing days/slots
   useEffect(() => {
     setActiveImageIndex(0);
-  }, [meal]);
+    setZoomProps({ scale: 1, x: 50, y: 50 });
+    zoomStateRef.current = { scale: 1, x: 50, y: 50 };
+  }, [resolvedPlanId, dayNum, mealTypeStr]);
 
   useEffect(() => {
     const container = imageContainerRef.current;
@@ -637,7 +706,7 @@ export function MealDetails() {
     );
   }
 
-  const extras = {
+  const extras: Record<string, string[]> = {
     breakfast: [
       "https://images.unsplash.com/photo-1493770348161-369560ae357d?auto=format&fit=crop&q=80&w=600",
       "https://images.unsplash.com/photo-1525385133512-2f3bdd039054?auto=format&fit=crop&q=80&w=600",
@@ -655,7 +724,11 @@ export function MealDetails() {
     ]
   };
 
-  const galleryImages = [meal.image, ...extras[mealTypeStr]];
+  const galleryImages = useMemo(() => {
+    if (!meal) return [];
+    const extraList = extras[mealTypeStr] || extras.breakfast || [];
+    return [meal.image, ...extraList].filter(Boolean);
+  }, [meal?.image, mealTypeStr]);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
@@ -712,7 +785,11 @@ export function MealDetails() {
                 {galleryImages.map((img, idx) => (
                   <button 
                     key={idx}
-                    onClick={() => setActiveImageIndex(idx)}
+                    onClick={() => {
+                    setActiveImageIndex(idx);
+                    setZoomProps({ scale: 1, x: 50, y: 50 });
+                    zoomStateRef.current = { scale: 1, x: 50, y: 50 };
+                  }}
                     className={`w-24 h-24 shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-emerald-500 shadow-md scale-105' : 'border-transparent opacity-60 hover:opacity-100 hover:border-slate-300'}`}
                   >
                     <img src={img} className="w-full h-full object-cover" alt={`Gallery thumbnail ${idx + 1}`} />

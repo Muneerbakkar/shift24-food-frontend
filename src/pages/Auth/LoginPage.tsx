@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Mail, Lock, User, Phone, ArrowRight, ShieldCheck, CheckCircle2, Eye, EyeOff, Truck } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Mail, Lock, User, Phone, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiLogin, apiRegister } from '../../services/api';
 import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
@@ -53,6 +53,7 @@ export function LoginPage() {
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('user', JSON.stringify(res.user));
         localStorage.setItem('userName', res.user?.name || name);
+        localStorage.setItem('userEmail', res.user?.email || email.trim().toLowerCase());
 
         toast.success(`Welcome to SHIFT24, ${res.user?.name || name}! Account created.`);
       } else {
@@ -70,6 +71,7 @@ export function LoginPage() {
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('user', JSON.stringify(res.user));
         localStorage.setItem('userName', res.user?.name || 'Customer');
+        localStorage.setItem('userEmail', res.user?.email || email.trim().toLowerCase());
 
         toast.success(`Welcome back, ${res.user?.name || 'Customer'}!`);
       }
@@ -82,13 +84,6 @@ export function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDemoFill = () => {
-    setIsSignUp(false);
-    setEmail('rahul.s@example.com');
-    setPassword('demo123');
-    toast('Filled demo subscriber credentials', { icon: '🔑' });
   };
 
   return (
@@ -134,23 +129,6 @@ export function LoginPage() {
             Create Account
           </button>
         </div>
-
-        {/* Quick Demo Subscriber Helper */}
-        {!isSignUp && (
-          <div className="mb-5 p-3 rounded-xl bg-emerald-50 border border-emerald-200/70 flex items-center justify-between">
-            <div className="text-xs">
-              <span className="font-bold text-emerald-900">Demo Member:</span>
-              <span className="text-emerald-700 block text-[11px]">rahul.s@example.com / demo123</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleDemoFill}
-              className="text-[11px] font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg transition-colors"
-            >
-              Fill Demo
-            </button>
-          </div>
-        )}
 
         {/* Form */}
         <form className="space-y-4" onSubmit={handleSubmit}>
@@ -272,24 +250,6 @@ export function LoginPage() {
             {isSignUp ? 'Sign In' : 'Create an Account'}
           </span>
         </p>
-
-        {/* Links to Driver & Admin */}
-        <div className="mt-8 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-center gap-3 text-xs">
-          <Link 
-            to="/driver/login" 
-            className="inline-flex items-center gap-1.5 font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 transition-colors"
-          >
-            <Truck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Delivery Partner Login →</span>
-          </Link>
-          <Link 
-            to="/admin/login" 
-            className="inline-flex items-center gap-1.5 font-semibold text-slate-400 hover:text-slate-700 transition-colors px-2 py-1"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Admin Portal</span>
-          </Link>
-        </div>
       </div>
 
       <ForgotPasswordModal

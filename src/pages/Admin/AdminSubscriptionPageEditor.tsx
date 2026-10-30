@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   CheckCircle2, 
-  ArrowRight, 
   Plus, 
   Edit2, 
   Trash2, 
@@ -16,10 +15,8 @@ import {
   Info, 
   X, 
   Tag, 
-  Percent, 
   Layers, 
   HelpCircle,
-  Eye,
   RefreshCw
 } from 'lucide-react';
 import { 
@@ -38,6 +35,7 @@ import {
   deleteBackendPlan 
 } from '../../services/api';
 import toast from 'react-hot-toast';
+import { showConfirmToast } from '../../utils/confirmToast';
 
 interface AdminSubscriptionPageEditorProps {
   plans: AdminPlanConfig[];
@@ -62,6 +60,7 @@ export function AdminSubscriptionPageEditor({
     dailyCommission: number;
     calories: string;
     description: string;
+    active: boolean;
     popular: boolean;
     badge: string;
     benefitsText: string;
@@ -72,6 +71,7 @@ export function AdminSubscriptionPageEditor({
     dailyCommission: 100,
     calories: '',
     description: '',
+    active: true,
     popular: false,
     badge: 'MOST POPULAR',
     benefitsText: ''
@@ -79,6 +79,7 @@ export function AdminSubscriptionPageEditor({
 
   const [mealOptions, setMealOptions] = useState<IMealOption[]>(DEFAULT_MEAL_OPTIONS);
   const [durationOptions, setDurationOptions] = useState<IDurationOption[]>(DEFAULT_DURATION_OPTIONS);
+  const [syncPackagesToAllPlans, setSyncPackagesToAllPlans] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   // Add Plan Modal State (Choose Your Path card)
@@ -122,7 +123,16 @@ export function AdminSubscriptionPageEditor({
     discount: number;
     popular: boolean;
     badge: string;
+    price: string;
     customPrice: string;
+    price1Meal: string;
+    price2Meals: string;
+    priceBreakfast: string;
+    priceLunch: string;
+    priceDinner: string;
+    priceBreakfastLunch: string;
+    priceLunchDinner: string;
+    priceBreakfastDinner: string;
     featuresText: string;
   }>({
     id: '',
@@ -132,7 +142,16 @@ export function AdminSubscriptionPageEditor({
     discount: 0,
     popular: false,
     badge: '',
+    price: '',
     customPrice: '',
+    price1Meal: '',
+    price2Meals: '',
+    priceBreakfast: '',
+    priceLunch: '',
+    priceDinner: '',
+    priceBreakfastLunch: '',
+    priceLunchDinner: '',
+    priceBreakfastDinner: '',
     featuresText: ''
   });
 
@@ -146,8 +165,9 @@ export function AdminSubscriptionPageEditor({
         dailyCommission: activePlan.dailyCommission !== undefined ? Number(activePlan.dailyCommission) : 100,
         calories: activePlan.calories || '1200 - 1500 kcal/day',
         description: activePlan.description || '',
+        active: activePlan.active !== false,
         popular: Boolean(activePlan.popular),
-        badge: activePlan.badge || (activePlan.popular ? 'MOST POPULAR' : ''),
+        badge: activePlan.popular ? (activePlan.badge || 'MOST POPULAR') : '',
         benefitsText: (activePlan.benefits && activePlan.benefits.length > 0)
           ? activePlan.benefits.join('\n')
           : 'High protein\nLow carb\nMetabolism boosting'
@@ -168,13 +188,54 @@ export function AdminSubscriptionPageEditor({
   };
 
   // Price calculation formula
-  const calculatePreviewPrice = (option: IDurationOption, mealsPerDay: '1' | '2' | '3') => {
-    if (option.customPrice && option.customPrice > 0) {
-      return option.customPrice;
+  const calculatePreviewPrice = (option: IDurationOption, mealsPerDay: '1' | '2' | '3', activeSlot?: string) => {
+    // 1. Explicit slot price configured on THIS card
+    if (activeSlot && activeSlot !== 'all' && option.slotPrices && (option.slotPrices as any)[activeSlot] && (option.slotPrices as any)[activeSlot] > 0) {
+      return (option.slotPrices as any)[activeSlot];
     }
+
+    // 2. Proportional slot price inherited from 1-day trial / daily slot rates
+    if (activeSlot && activeSlot !== 'all') {
+      const oneDayOption = durationOptions.find(o => Number(o.days) === 1);
+      const oneDaySlotPrice = oneDayOption?.slotPrices && (oneDayOption.slotPrices as any)[activeSlot];
+      if (oneDaySlotPrice && Number(oneDaySlotPrice) > 0) {
+        return Math.round(Number(oneDaySlotPrice) * option.days * (1 - (option.discount || 0) / 100));
+      }
+    }
+
+    // 3. Explicit meal-count price configured on THIS card
+    if (option.prices && option.prices[mealsPerDay] && option.prices[mealsPerDay]! > 0) {
+      if (mealsPerDay === '3' && option.discount && option.discount > 0) {
+        return Math.round(option.prices[mealsPerDay]! * (1 - option.discount / 100));
+      }
+      return option.prices[mealsPerDay]!;
+    }
+
+    // 4. Proportional meal-count price inherited from 1-day trial
+    if (mealsPerDay !== '3') {
+      const oneDayOption = durationOptions.find(o => Number(o.days) === 1);
+      const oneDayMealPrice = oneDayOption?.prices?.[mealsPerDay];
+      if (oneDayMealPrice && Number(oneDayMealPrice) > 0) {
+        return Math.round(Number(oneDayMealPrice) * option.days * (1 - (option.discount || 0) / 100));
+      }
+    }
+
     const mealOption = mealOptions.find(m => m.id === mealsPerDay) || DEFAULT_MEAL_OPTIONS.find(m => m.id === mealsPerDay);
-    const multiplier = mealOption ? mealOption.multiplier : 1;
-    const dailyPrice = (Number(planForm.pricePerWeek) / 7) * multiplier;
+    const multiplier = (mealOption && typeof mealOption.multiplier === 'number' && mealOption.multiplier > 0)
+      ? (mealsPerDay === '1' && mealOption.multiplier >= 0.9 ? 0.40 : mealsPerDay === '2' && (mealOption.multiplier >= 0.95 || mealOption.multiplier < 0.3) ? 0.72 : mealOption.multiplier)
+      : (mealsPerDay === '1' ? 0.40 : mealsPerDay === '2' ? 0.72 : 1.00);
+
+    // 5. Card base price override scaled by meal multiplier & discount
+    const cardPrice = option.price || option.customPrice;
+    if (cardPrice && cardPrice > 0) {
+      if (mealsPerDay === '3') {
+        return Math.round(cardPrice * (1 - (option.discount || 0) / 100));
+      }
+      return Math.round(cardPrice * multiplier * (1 - (option.discount || 0) / 100));
+    }
+
+    // 6. Default plan calculation from base weekly price
+    const dailyPrice = (Number(planForm.pricePerWeek || 3000) / 7) * multiplier;
     const basePrice = dailyPrice * option.days;
     const finalPrice = basePrice * (1 - (option.discount || 0) / 100);
     return Math.round(finalPrice);
@@ -199,29 +260,85 @@ export function AdminSubscriptionPageEditor({
       description: planForm.description.trim() || activePlan.description,
       popular: Boolean(planForm.popular),
       badge: planForm.popular ? (planForm.badge.trim() || 'MOST POPULAR') : '',
+      active: planForm.active !== false,
       mealOptions,
       durationOptions: sortedOptions
     };
 
-    const updatedPlans = plans.map(p => p.id === activePlan.id ? updatedPlan : p);
+    let updatedPlans: AdminPlanConfig[];
+    if (syncPackagesToAllPlans) {
+      updatedPlans = plans.map(p => {
+        if (p.id === activePlan.id) {
+          return updatedPlan;
+        }
+        return {
+          ...p,
+          popular: updatedPlan.popular ? false : p.popular,
+          badge: updatedPlan.popular ? '' : p.badge,
+          durationOptions: sortedOptions
+        };
+      });
+    } else {
+      updatedPlans = plans.map(p => {
+        if (p.id === activePlan.id) {
+          return updatedPlan;
+        }
+        return {
+          ...p,
+          popular: updatedPlan.popular ? false : p.popular,
+          badge: updatedPlan.popular ? '' : p.badge
+        };
+      });
+    }
+
     onPlansUpdated(updatedPlans);
     saveAdminPlans(updatedPlans);
 
     try {
-      await updateBackendPlan(activePlan.id, {
-        title: updatedPlan.title,
-        subtitle: updatedPlan.subtitle,
-        pricePerWeek: updatedPlan.pricePerWeek,
-        dailyCommission: updatedPlan.dailyCommission,
-        calories: updatedPlan.calories,
-        description: updatedPlan.description,
-        benefits: updatedPlan.benefits,
-        mealOptions: updatedPlan.mealOptions,
-        durationOptions: updatedPlan.durationOptions,
-        active: updatedPlan.active,
-        popular: updatedPlan.popular,
-        badge: updatedPlan.badge
-      });
+      if (syncPackagesToAllPlans) {
+        await Promise.all([
+          updateBackendPlan(activePlan.id, {
+            title: updatedPlan.title,
+            subtitle: updatedPlan.subtitle,
+            pricePerWeek: updatedPlan.pricePerWeek,
+            dailyCommission: updatedPlan.dailyCommission,
+            calories: updatedPlan.calories,
+            description: updatedPlan.description,
+            benefits: updatedPlan.benefits,
+            mealOptions: updatedPlan.mealOptions,
+            durationOptions: updatedPlan.durationOptions,
+            active: updatedPlan.active,
+            popular: updatedPlan.popular,
+            badge: updatedPlan.badge
+          }),
+          ...plans
+            .filter(p => p.id !== activePlan.id)
+            .map(p => updateBackendPlan(p.id, {
+              durationOptions: sortedOptions,
+              ...(updatedPlan.popular ? { popular: false, badge: '' } : {})
+            }))
+        ]);
+      } else {
+        await Promise.all([
+          updateBackendPlan(activePlan.id, {
+            title: updatedPlan.title,
+            subtitle: updatedPlan.subtitle,
+            pricePerWeek: updatedPlan.pricePerWeek,
+            dailyCommission: updatedPlan.dailyCommission,
+            calories: updatedPlan.calories,
+            description: updatedPlan.description,
+            benefits: updatedPlan.benefits,
+            mealOptions: updatedPlan.mealOptions,
+            durationOptions: updatedPlan.durationOptions,
+            active: updatedPlan.active,
+            popular: updatedPlan.popular,
+            badge: updatedPlan.badge
+          }),
+          ...(updatedPlan.popular
+            ? plans.filter(p => p.id !== activePlan.id).map(p => updateBackendPlan(p.id, { popular: false, badge: '' }))
+            : [])
+        ]);
+      }
       if (successMsg) toast.success(successMsg);
     } catch {
       if (successMsg) toast.success(`${successMsg} (Saved locally)`);
@@ -251,33 +368,68 @@ export function AdminSubscriptionPageEditor({
       benefits: benefits.length > 0 ? benefits : (activePlan.benefits || []),
       popular: Boolean(planForm.popular),
       badge: planForm.popular ? (planForm.badge.trim() || 'MOST POPULAR') : '',
+      active: planForm.active !== false,
       mealOptions,
       durationOptions: sortedDurationOptions
     };
 
-    const updatedPlans = plans.map(p => {
-      if (p.id === activePlan.id) return updatedPlan;
-      if (planForm.popular) return { ...p, popular: false };
-      return p;
-    });
+    let updatedPlans: AdminPlanConfig[];
+    if (syncPackagesToAllPlans) {
+      updatedPlans = plans.map(p => {
+        if (p.id === activePlan.id) return updatedPlan;
+        return {
+          ...p,
+          popular: planForm.popular ? false : p.popular,
+          durationOptions: sortedDurationOptions
+        };
+      });
+    } else {
+      updatedPlans = plans.map(p => {
+        if (p.id === activePlan.id) return updatedPlan;
+        if (planForm.popular) return { ...p, popular: false };
+        return p;
+      });
+    }
     onPlansUpdated(updatedPlans);
     saveAdminPlans(updatedPlans);
 
     try {
-      await updateBackendPlan(activePlan.id, {
-        title: updatedPlan.title,
-        subtitle: updatedPlan.subtitle,
-        pricePerWeek: updatedPlan.pricePerWeek,
-        dailyCommission: updatedPlan.dailyCommission,
-        calories: updatedPlan.calories,
-        description: updatedPlan.description,
-        benefits: updatedPlan.benefits,
-        mealOptions: updatedPlan.mealOptions,
-        durationOptions: updatedPlan.durationOptions,
-        active: updatedPlan.active,
-        popular: updatedPlan.popular,
-        badge: updatedPlan.badge
-      });
+      if (syncPackagesToAllPlans) {
+        await Promise.all([
+          updateBackendPlan(activePlan.id, {
+            title: updatedPlan.title,
+            subtitle: updatedPlan.subtitle,
+            pricePerWeek: updatedPlan.pricePerWeek,
+            dailyCommission: updatedPlan.dailyCommission,
+            calories: updatedPlan.calories,
+            description: updatedPlan.description,
+            benefits: updatedPlan.benefits,
+            mealOptions: updatedPlan.mealOptions,
+            durationOptions: updatedPlan.durationOptions,
+            active: updatedPlan.active,
+            popular: updatedPlan.popular,
+            badge: updatedPlan.badge
+          }),
+          ...plans
+            .filter(p => p.id !== activePlan.id)
+            .map(p => updateBackendPlan(p.id, { durationOptions: sortedDurationOptions }))
+        ]);
+      } else {
+        await updateBackendPlan(activePlan.id, {
+          title: updatedPlan.title,
+          subtitle: updatedPlan.subtitle,
+          pricePerWeek: updatedPlan.pricePerWeek,
+          dailyCommission: updatedPlan.dailyCommission,
+          calories: updatedPlan.calories,
+          description: updatedPlan.description,
+          benefits: updatedPlan.benefits,
+          mealOptions: updatedPlan.mealOptions,
+          durationOptions: updatedPlan.durationOptions,
+          active: updatedPlan.active,
+          popular: updatedPlan.popular,
+          badge: updatedPlan.badge
+        });
+      }
       toast.success(`Settings for "${updatedPlan.title}" saved successfully!`);
     } catch {
       toast.success(`Saved locally! (Backend offline)`);
@@ -356,7 +508,7 @@ export function AdminSubscriptionPageEditor({
   };
 
   // Delete Plan (Choose Your Path card)
-  const handleDeletePlan = async (planIdToDelete: string) => {
+  const handleDeletePlan = (planIdToDelete: string) => {
     if (plans.length <= 1) {
       toast.error('At least one meal plan is required for "Choose Your Path"');
       return;
@@ -365,31 +517,30 @@ export function AdminSubscriptionPageEditor({
     const planToDelete = plans.find(p => p.id === planIdToDelete);
     const planTitle = planToDelete?.title || 'this plan';
 
-    if (!window.confirm(`Are you sure you want to delete "${planTitle}" from Choose Your Path? This action cannot be undone.`)) {
-      return;
-    }
+    showConfirmToast({
+      title: `Delete "${planTitle}" from Choose Your Path?`,
+      description: 'This will remove the plan card from the homepage and configuration. This action cannot be undone.',
+      confirmText: 'Delete Plan',
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        try {
+          await deleteBackendPlan(planIdToDelete);
+        } catch (err) {
+          console.warn('Backend delete fallback:', err);
+        }
 
-    try {
-      await deleteBackendPlan(planIdToDelete);
-    } catch (err) {
-      console.warn('Backend delete fallback:', err);
-    }
+        const updatedPlans = plans.filter(p => p.id !== planIdToDelete);
+        onPlansUpdated(updatedPlans);
+        saveAdminPlans(updatedPlans);
 
-    const updatedPlans = plans.filter(p => p.id !== planIdToDelete);
-    onPlansUpdated(updatedPlans);
-    saveAdminPlans(updatedPlans);
+        const nextPlan = updatedPlans[0];
+        if (nextPlan) {
+          setSelectedPlanId(nextPlan.id);
+        }
 
-    const nextPlan = updatedPlans[0];
-    if (nextPlan) {
-      setSelectedPlanId(nextPlan.id);
-    }
-
-    toast.success(`Plan "${planTitle}" deleted from Choose Your Path!`);
-  };
-
-  // Multiplier change handler
-  const handleMultiplierChange = (id: '1' | '2' | '3', key: keyof IMealOption, value: any) => {
-    setMealOptions(prev => prev.map(m => m.id === id ? { ...m, [key]: value } : m));
+        toast.success(`Plan "${planTitle}" deleted from Choose Your Path!`);
+      }
+    });
   };
 
   // Package Modal Open (Add)
@@ -404,7 +555,16 @@ export function AdminSubscriptionPageEditor({
       discount: 5,
       popular: false,
       badge: '',
-      customPrice: '',
+      price: '5500',
+      customPrice: '5500',
+      price1Meal: '',
+      price2Meals: '',
+      priceBreakfast: '',
+      priceLunch: '',
+      priceDinner: '',
+      priceBreakfastLunch: '',
+      priceLunchDinner: '',
+      priceBreakfastDinner: '',
       featuresText: '{meal_count} Meals daily\nFree daily delivery\n{plan_title} macros'
     });
     setIsPackageModalOpen(true);
@@ -414,6 +574,7 @@ export function AdminSubscriptionPageEditor({
   const handleOpenEditPackage = (pkg: IDurationOption) => {
     setPackageModalMode('edit');
     setEditingPackageId(pkg.id);
+    const rawPrice = pkg.price || pkg.customPrice || pkg.prices?.['3'] || Math.round((Number(planForm.pricePerWeek || 3000) / 7) * pkg.days);
     setPackageForm({
       id: pkg.id,
       title: pkg.title,
@@ -422,7 +583,16 @@ export function AdminSubscriptionPageEditor({
       discount: pkg.discount,
       popular: pkg.popular,
       badge: pkg.badge || (pkg.popular ? 'MOST POPULAR' : ''),
-      customPrice: pkg.customPrice ? String(pkg.customPrice) : '',
+      price: rawPrice ? String(rawPrice) : '',
+      customPrice: rawPrice ? String(rawPrice) : '',
+      price1Meal: pkg.prices?.['1'] ? String(pkg.prices['1']) : '',
+      price2Meals: pkg.prices?.['2'] ? String(pkg.prices['2']) : '',
+      priceBreakfast: pkg.slotPrices?.breakfast ? String(pkg.slotPrices.breakfast) : '',
+      priceLunch: pkg.slotPrices?.lunch ? String(pkg.slotPrices.lunch) : '',
+      priceDinner: pkg.slotPrices?.dinner ? String(pkg.slotPrices.dinner) : '',
+      priceBreakfastLunch: pkg.slotPrices?.['breakfast-lunch'] ? String(pkg.slotPrices['breakfast-lunch']) : '',
+      priceLunchDinner: pkg.slotPrices?.['lunch-dinner'] ? String(pkg.slotPrices['lunch-dinner']) : '',
+      priceBreakfastDinner: pkg.slotPrices?.['breakfast-dinner'] ? String(pkg.slotPrices['breakfast-dinner']) : '',
       featuresText: (pkg.features && pkg.features.length > 0)
         ? pkg.features.join('\n')
         : '{meal_count} Meals daily\nFree daily delivery\n{plan_title} macros'
@@ -434,7 +604,7 @@ export function AdminSubscriptionPageEditor({
   const handleSavePackageModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!packageForm.title.trim()) {
-      toast.error('Package title is required');
+      toast.error('Card title is required');
       return;
     }
     if (Number(packageForm.days) < 1) {
@@ -447,6 +617,33 @@ export function AdminSubscriptionPageEditor({
       .map(f => f.trim())
       .filter(Boolean);
 
+    const enteredPrice = Number(packageForm.price) || Number(packageForm.customPrice) || undefined;
+    const pricesObj: { '1'?: number; '2'?: number; '3'?: number } = {};
+    if (packageForm.price1Meal && Number(packageForm.price1Meal) > 0) {
+      pricesObj['1'] = Number(packageForm.price1Meal);
+    }
+    if (packageForm.price2Meals && Number(packageForm.price2Meals) > 0) {
+      pricesObj['2'] = Number(packageForm.price2Meals);
+    }
+    if (enteredPrice) {
+      pricesObj['3'] = enteredPrice;
+    }
+
+    const slotPricesObj: {
+      breakfast?: number;
+      lunch?: number;
+      dinner?: number;
+      'breakfast-lunch'?: number;
+      'lunch-dinner'?: number;
+      'breakfast-dinner'?: number;
+    } = {};
+    if (packageForm.priceBreakfast && Number(packageForm.priceBreakfast) > 0) slotPricesObj.breakfast = Number(packageForm.priceBreakfast);
+    if (packageForm.priceLunch && Number(packageForm.priceLunch) > 0) slotPricesObj.lunch = Number(packageForm.priceLunch);
+    if (packageForm.priceDinner && Number(packageForm.priceDinner) > 0) slotPricesObj.dinner = Number(packageForm.priceDinner);
+    if (packageForm.priceBreakfastLunch && Number(packageForm.priceBreakfastLunch) > 0) slotPricesObj['breakfast-lunch'] = Number(packageForm.priceBreakfastLunch);
+    if (packageForm.priceLunchDinner && Number(packageForm.priceLunchDinner) > 0) slotPricesObj['lunch-dinner'] = Number(packageForm.priceLunchDinner);
+    if (packageForm.priceBreakfastDinner && Number(packageForm.priceBreakfastDinner) > 0) slotPricesObj['breakfast-dinner'] = Number(packageForm.priceBreakfastDinner);
+
     const newPkg: IDurationOption = {
       id: packageModalMode === 'edit' && editingPackageId ? editingPackageId : (packageForm.id || `${packageForm.days}-day`),
       title: packageForm.title.trim(),
@@ -455,7 +652,10 @@ export function AdminSubscriptionPageEditor({
       discount: Number(packageForm.discount) || 0,
       popular: Boolean(packageForm.popular),
       badge: packageForm.popular ? (packageForm.badge.trim() || 'MOST POPULAR') : '',
-      customPrice: packageForm.customPrice ? Number(packageForm.customPrice) : undefined,
+      price: enteredPrice,
+      customPrice: enteredPrice,
+      prices: Object.keys(pricesObj).length > 0 ? pricesObj : undefined,
+      slotPrices: Object.keys(slotPricesObj).length > 0 ? slotPricesObj : undefined,
       features: featuresList.length > 0 ? featuresList : ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']
     };
 
@@ -477,32 +677,42 @@ export function AdminSubscriptionPageEditor({
     await persistDurationOptions(
       updatedList,
       packageModalMode === 'edit'
-        ? `Duration package "${newPkg.title}" updated successfully!`
-        : `Duration package "${newPkg.title}" added successfully!`
+        ? `Duration card "${newPkg.title}" updated successfully!`
+        : `Duration card "${newPkg.title}" added successfully!`
     );
   };
 
   // Delete Package
-  const handleDeletePackage = async (pkgId: string) => {
+  const handleDeletePackage = (pkgId: string) => {
     if (durationOptions.length <= 1) {
       toast.error('At least one duration package is required');
       return;
     }
     const pkgToDelete = durationOptions.find(p => p.id === pkgId);
     const pkgTitle = pkgToDelete?.title || 'package';
-    if (!window.confirm(`Are you sure you want to remove "${pkgTitle}"?`)) return;
 
-    const updated = durationOptions.filter(p => p.id !== pkgId);
-    await persistDurationOptions(updated, `Duration package "${pkgTitle}" deleted successfully!`);
+    showConfirmToast({
+      title: `Remove "${pkgTitle}" duration card?`,
+      description: 'Customers will no longer see or be able to subscribe to this duration option.',
+      confirmText: 'Remove Card',
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        const updated = durationOptions.filter(p => p.id !== pkgId);
+        await persistDurationOptions(updated, `Duration package "${pkgTitle}" deleted successfully!`);
+      }
+    });
   };
 
   // Toggle Popular
   const handleTogglePopular = async (pkgId: string) => {
-    const updated = durationOptions.map(p => ({
-      ...p,
-      popular: p.id === pkgId ? !p.popular : false,
-      badge: p.id === pkgId && !p.popular ? 'MOST POPULAR' : (p.id === pkgId ? '' : p.badge)
-    }));
+    const updated = durationOptions.map(p => {
+      const willBePopular = p.id === pkgId ? !p.popular : false;
+      return {
+        ...p,
+        popular: willBePopular,
+        badge: willBePopular ? (p.badge || 'MOST POPULAR') : ''
+      };
+    });
     await persistDurationOptions(updated, 'Popular duration package updated!');
   };
 
@@ -739,6 +949,29 @@ export function AdminSubscriptionPageEditor({
             </span>
           </div>
 
+          {/* Active Status on Choose Your Path */}
+          <div className="md:col-span-1 pt-3 border-t border-slate-100 flex items-center justify-between gap-4 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+            <div>
+              <label className="flex items-center gap-2.5 cursor-pointer font-bold text-slate-800 text-xs">
+                <input
+                  type="checkbox"
+                  checked={planForm.active}
+                  onChange={(e) => setPlanForm({ ...planForm, active: e.target.checked })}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                />
+                <span className="text-slate-900 font-extrabold">Show on "Choose Your Path"</span>
+              </label>
+              <p className="text-[11px] text-slate-500 mt-0.5 ml-6">
+                Display this card on the homepage
+              </p>
+            </div>
+            <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
+              planForm.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {planForm.active ? 'Active' : 'Hidden'}
+            </span>
+          </div>
+
           <div className="md:col-span-2 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-emerald-50/50 p-3.5 rounded-2xl border border-emerald-100/60">
             <div>
               <label className="flex items-center gap-2.5 cursor-pointer font-bold text-slate-800 text-xs">
@@ -771,81 +1004,30 @@ export function AdminSubscriptionPageEditor({
         </div>
       </div>
 
-      {/* 3. Meals Per Day Configuration & Multipliers */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div>
-            <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-              <Percent className="w-4 h-4 text-emerald-600" />
-              <span>Meals Per Day & Multipliers ("Choose Meals Per Day")</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Control the buttons customers click to pick 1, 2, or 3 meals daily, and how much the base price scales.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {mealOptions.map((opt) => (
-            <div key={opt.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-slate-900 uppercase tracking-wider">{opt.id} Meal Option</span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                  {Math.round(opt.multiplier * 100)}% of daily rate
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">Button Title</label>
-                <input
-                  type="text"
-                  value={opt.label}
-                  onChange={(e) => handleMultiplierChange(opt.id, 'label', e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">Subtitle / Hint</label>
-                <input
-                  type="text"
-                  value={opt.sub}
-                  onChange={(e) => handleMultiplierChange(opt.id, 'sub', e.target.value)}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-700"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">Rate Multiplier (0.1 to 1.5)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0.1"
-                  max="2.0"
-                  value={opt.multiplier}
-                  onChange={(e) => handleMultiplierChange(opt.id, 'multiplier', Number(e.target.value))}
-                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800"
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 4. Duration Packages Manager (Cards) */}
+      {/* 3. Duration Cards Manager */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
             <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
               <Tag className="w-4 h-4 text-emerald-600" />
-              <span>Subscription Duration Packages (The 4 Cards)</span>
+              <span>Subscription Duration Cards ({durationOptions.length} Cards)</span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Add, remove, or modify the duration options (1-Day, 7-Day, 15-Day, 30-Day), discounts, and popular badges.
+              Manually edit each card's price, duration (days), discounts, and features.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-slate-50 hover:bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 transition-colors mr-1">
+              <input
+                type="checkbox"
+                checked={syncPackagesToAllPlans}
+                onChange={e => setSyncPackagesToAllPlans(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+              />
+              <span>Apply to all plans</span>
+            </label>
+
             <button
               type="button"
               onClick={handleSaveAll}
@@ -853,7 +1035,7 @@ export function AdminSubscriptionPageEditor({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-50"
             >
               <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : ''}`} />
-              <span>{isSaving ? 'Saving...' : 'Save Packages'}</span>
+              <span>{isSaving ? 'Saving...' : 'Save Cards'}</span>
             </button>
 
             <button
@@ -862,15 +1044,98 @@ export function AdminSubscriptionPageEditor({
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Duration Package</span>
+              <span>Add Duration Card</span>
             </button>
           </div>
         </div>
 
+        {/* Choose Meals Per Day Selector */}
+        <div className="max-w-xl mx-auto w-full bg-slate-50/80 p-4 sm:p-5 rounded-3xl border border-slate-200 shadow-xs text-center my-2">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+            Choose Meals Per Day
+          </p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-2.5">
+            {mealOptions.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setPreviewMealsPerDay(m.id)}
+                className={`py-3 px-2 rounded-2xl border text-center transition-all cursor-pointer ${
+                  previewMealsPerDay === m.id
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-900 font-extrabold shadow-xs ring-2 ring-emerald-500/20'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-slate-50'
+                }`}
+              >
+                <div className="text-xs sm:text-sm font-extrabold">{m.label}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5 truncate">{m.sub}</div>
+              </button>
+            ))}
+          </div>
+
+          {previewMealsPerDay === '1' && (
+            <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-center gap-1.5 animate-in fade-in duration-200">
+              <span className="text-[11px] font-bold text-slate-500 mr-1">Choose slot:</span>
+              {(['breakfast', 'lunch', 'dinner'] as const).map((slot) => (
+                <button
+                  key={slot}
+                  type="button"
+                  onClick={() => setPreviewSlot(slot)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-bold capitalize transition-all border cursor-pointer ${
+                    previewSlot === slot
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {slot} {slot === 'lunch' ? '★' : ''}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {previewMealsPerDay === '2' && (
+            <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-center gap-1.5 animate-in fade-in duration-200">
+              <span className="text-[11px] font-bold text-slate-500 mr-1">Choose 2 meals:</span>
+              {[
+                { id: 'breakfast-lunch', label: 'Breakfast & Lunch' },
+                { id: 'lunch-dinner', label: 'Lunch & Dinner', popular: true },
+                { id: 'breakfast-dinner', label: 'Breakfast & Dinner' },
+              ].map((combo) => (
+                <button
+                  key={combo.id}
+                  type="button"
+                  onClick={() => setPreviewTwoSlot(combo.id)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border cursor-pointer ${
+                    previewTwoSlot === combo.id
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {combo.label} {combo.popular ? '★' : ''}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Packages Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-1 ${
+          durationOptions.length === 1 ? 'max-w-md mx-auto sm:grid-cols-1' :
+          durationOptions.length === 2 ? 'sm:grid-cols-2 max-w-3xl mx-auto' :
+          durationOptions.length === 3 ? 'sm:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto' :
+          'sm:grid-cols-2 lg:grid-cols-4'
+        } gap-4 pt-2`}>
           {durationOptions.map((pkg) => {
-            const previewPrice = calculatePreviewPrice(pkg, previewMealsPerDay);
+            const currentSlot = previewMealsPerDay === '1' ? previewSlot : previewMealsPerDay === '2' ? previewTwoSlot : undefined;
+            const previewPrice = calculatePreviewPrice(pkg, previewMealsPerDay, currentSlot);
+            const isExplicitSlot = Boolean(currentSlot && pkg.slotPrices && (pkg.slotPrices as any)[currentSlot] > 0);
+            const oneDayOption = durationOptions.find(o => Number(o.days) === 1);
+            const isInheritedSlot = Boolean(!isExplicitSlot && currentSlot && oneDayOption?.slotPrices && (oneDayOption.slotPrices as any)[currentSlot] > 0);
+            const slotSummary = previewMealsPerDay === '1'
+              ? `1 Meal/day (${previewSlot.charAt(0).toUpperCase() + previewSlot.slice(1)})`
+              : previewMealsPerDay === '2'
+              ? `2 Meals/day (${twoMealLabels[previewTwoSlot] || 'Breakfast & Lunch'})`
+              : `${previewMealsPerDay} Meals daily`;
+
             return (
               <div 
                 key={pkg.id}
@@ -899,10 +1164,20 @@ export function AdminSubscriptionPageEditor({
                   </p>
 
                   <div className="flex items-baseline gap-1.5 mb-2">
-                    <span className="text-xl font-extrabold text-slate-900">₹{previewPrice}</span>
+                    <span className="text-2xl font-black text-slate-900">₹{previewPrice}</span>
                     <span className="text-[11px] text-slate-400">
                       {pkg.days === 1 ? '/day' : 'total'}
                     </span>
+                    {isExplicitSlot && (
+                      <span className="ml-auto text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Slot Price
+                      </span>
+                    )}
+                    {isInheritedSlot && (
+                      <span className="ml-auto text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                        Slot Rate
+                      </span>
+                    )}
                   </div>
 
                   {pkg.discount > 0 ? (
@@ -914,14 +1189,18 @@ export function AdminSubscriptionPageEditor({
                   )}
 
                   <ul className="space-y-1.5 text-[11px] text-slate-600 mb-4 border-t border-slate-100 pt-3">
-                    {(pkg.features || ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']).slice(0, 3).map((f, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span className="truncate">
-                          {f.replace('{meal_count}', previewMealsPerDay).replace('{plan_title}', planForm.title || 'Plan')}
-                        </span>
-                      </li>
-                    ))}
+                    {(pkg.features || ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']).slice(0, 4).map((f, i) => {
+                      const resolved = f
+                        .replace('{meal_count} Meals daily', slotSummary)
+                        .replace('{meal_count}', previewMealsPerDay)
+                        .replace('{plan_title}', planForm.title || 'Plan');
+                      return (
+                        <li key={i} className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="truncate">{resolved}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
 
@@ -929,7 +1208,7 @@ export function AdminSubscriptionPageEditor({
                   <button
                     type="button"
                     onClick={() => handleTogglePopular(pkg.id)}
-                    className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition-colors ${
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
                       pkg.popular
                         ? 'bg-emerald-600 text-white border-emerald-600'
                         : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -938,20 +1217,21 @@ export function AdminSubscriptionPageEditor({
                     {pkg.popular ? '★ Popular' : 'Mark Popular'}
                   </button>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => handleOpenEditPackage(pkg)}
-                      className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-                      title="Edit Package"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-700 hover:text-emerald-700 bg-slate-100 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-lg transition-colors cursor-pointer"
+                      title="Edit Card"
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
+                      <Edit2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Edit Card</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDeletePackage(pkg.id)}
-                      className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
-                      title="Delete Package"
+                      className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      title="Delete Card"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -963,326 +1243,317 @@ export function AdminSubscriptionPageEditor({
         </div>
       </div>
 
-      {/* 5. Live Interactive Preview (Matches User's Screenshot Exactly!) */}
-      <div className="bg-slate-50 rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-xs space-y-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-4">
-          <div className="flex items-center gap-2">
-            <Eye className="w-5 h-5 text-emerald-600" />
-            <h3 className="text-base font-black text-slate-900">
-              Live Customer Page Preview
-            </h3>
-            <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-              What Customers See
-            </span>
-          </div>
-
-          <p className="text-xs text-slate-500">
-            Interactive preview: test changing meals per day to see calculated prices.
-          </p>
-        </div>
-
-        {/* Preview Page Title */}
-        <div className="text-center">
-          <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 mb-2">
-            {planForm.title || 'Plan'} Subscription
-          </h1>
-          <p className="text-slate-500 max-w-xl mx-auto text-sm leading-relaxed">
-            {planForm.subtitle}
-          </p>
-        </div>
-
-        {/* Preview Meal Configuration Selector */}
-        <div className="max-w-xl mx-auto bg-white p-5 rounded-3xl border border-slate-200 shadow-sm text-center">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
-            Choose Meals Per Day
-          </p>
-          <div className="grid grid-cols-3 gap-2.5 mb-3">
-            {mealOptions.map((m) => (
+      {/* 4. Edit / Add Duration Card Modal */}
+      {isPackageModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-hidden">
+          <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[92vh] shadow-2xl border border-slate-200 flex flex-col relative animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-2xl">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900">
+                    {packageModalMode === 'edit' ? `Edit ${packageForm.title || 'Duration Card'}` : 'Add Duration Card'}
+                  </h3>
+                  <p className="text-xs text-slate-500">Manually set card price, duration, discounts, and slot prices</p>
+                </div>
+              </div>
               <button
-                key={m.id}
                 type="button"
-                onClick={() => setPreviewMealsPerDay(m.id)}
-                className={`py-2.5 px-2 rounded-2xl border text-center transition-all ${
-                  previewMealsPerDay === m.id
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-900 font-bold shadow-xs ring-2 ring-emerald-500/20'
-                    : 'border-slate-200 bg-slate-50/70 text-slate-600 hover:border-emerald-200 hover:bg-white'
-                }`}
+                onClick={() => setIsPackageModalOpen(false)}
+                className="p-2 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                <div className="text-xs sm:text-sm font-bold">{m.label}</div>
-                <div className="text-[10px] text-slate-500 mt-0.5 truncate">{m.sub}</div>
+                <X className="w-5 h-5" />
               </button>
-            ))}
-          </div>
-
-          {previewMealsPerDay === '1' && (
-            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-center gap-1.5 animate-in fade-in duration-200">
-              <span className="text-[11px] font-bold text-slate-500 mr-1">Choose slot:</span>
-              {(['breakfast', 'lunch', 'dinner'] as const).map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => setPreviewSlot(slot)}
-                  className={`px-3 py-1 rounded-full text-[11px] font-bold capitalize transition-all border ${
-                    previewSlot === slot
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {slot} {slot === 'lunch' ? '★' : ''}
-                </button>
-              ))}
             </div>
-          )}
 
-          {previewMealsPerDay === '2' && (
-            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-center gap-1.5 animate-in fade-in duration-200">
-              <span className="text-[11px] font-bold text-slate-500 mr-1">Choose 2 meals:</span>
-              {[
-                { id: 'breakfast-lunch', label: 'Breakfast & Lunch' },
-                { id: 'lunch-dinner', label: 'Lunch & Dinner', popular: true },
-                { id: 'breakfast-dinner', label: 'Breakfast & Dinner' },
-              ].map((combo) => (
-                <button
-                  key={combo.id}
-                  type="button"
-                  onClick={() => setPreviewTwoSlot(combo.id)}
-                  className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all border ${
-                    previewTwoSlot === combo.id
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {combo.label} {combo.popular ? '★' : ''}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Preview Duration Cards (Screenshot match) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 max-w-7xl mx-auto">
-          {durationOptions.map((opt) => {
-            const price = calculatePreviewPrice(opt, previewMealsPerDay);
-            const isFeatured = opt.popular;
-
-            const slotSummary = previewMealsPerDay === '1'
-              ? `1 Meal/day (${previewSlot.charAt(0).toUpperCase() + previewSlot.slice(1)})`
-              : previewMealsPerDay === '2'
-              ? `2 Meals/day (${twoMealLabels[previewTwoSlot] || 'Breakfast & Lunch'})`
-              : `${previewMealsPerDay} Meals daily`;
-
-            return (
-              <div 
-                key={opt.id}
-                className={`relative flex flex-col p-6 rounded-2xl md:rounded-[28px] transition-transform ${
-                  isFeatured 
-                    ? 'bg-emerald-600 text-white shadow-xl lg:-translate-y-2 z-10' 
-                    : 'bg-white text-slate-900 border border-slate-200 shadow-sm'
-                }`}
-              >
-                {isFeatured && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-300 text-emerald-900 text-[11px] font-black uppercase tracking-wider py-1 px-3 rounded-full shadow-xs">
-                    {opt.badge || 'Most Popular'}
+            <form onSubmit={handleSavePackageModal} className="flex flex-col flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Card Title</label>
+                    <input
+                      type="text"
+                      required
+                      value={packageForm.title}
+                      onChange={(e) => setPackageForm({ ...packageForm, title: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                      placeholder="e.g. 7 Day Plan"
+                    />
                   </div>
-                )}
-                
-                <h3 className={`text-xl font-bold mb-1 ${isFeatured ? 'text-white' : 'text-slate-900'}`}>{opt.title}</h3>
-                <p className={`text-xs mb-5 min-h-[34px] leading-relaxed ${isFeatured ? 'text-emerald-50' : 'text-slate-500'}`}>{opt.description}</p>
-                
-                <div className="mb-4 flex items-baseline gap-1.5">
-                  <span className="text-3xl md:text-4xl font-extrabold">₹{price}</span>
-                  <span className={`text-xs font-medium ${isFeatured ? 'text-emerald-200' : 'text-slate-400'}`}>
-                    {opt.days === 1 ? '/day' : 'total'}
-                  </span>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Duration (Days)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={packageForm.days}
+                      onChange={(e) => setPackageForm({ ...packageForm, days: Number(e.target.value) })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                      placeholder="7"
+                    />
+                  </div>
                 </div>
 
-                {opt.discount > 0 ? (
-                  <div className={`inline-block mb-6 px-2.5 py-0.5 rounded-full text-[11px] font-bold w-fit ${isFeatured ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-700'}`}>
-                    Save {opt.discount}%
+                {/* Manual Pricing Section */}
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-slate-900 text-xs flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Manual Card Pricing
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-medium">Direct prices for customers</span>
                   </div>
-                ) : (
-                  <div className="mb-6 h-5"></div>
-                )}
 
-                <ul className="space-y-3 mb-8 flex-grow text-xs">
-                  {(opt.features || ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']).map((feature, i) => {
-                    const resolved = feature
-                      .replace('{meal_count} Meals daily', slotSummary)
-                      .replace('{meal_count}', previewMealsPerDay)
-                      .replace('{plan_title}', planForm.title || 'Plan');
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">
+                        Card Price (₹)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₹</span>
+                        <input
+                          type="number"
+                          min="0"
+                          required
+                          value={packageForm.price}
+                          onChange={(e) => setPackageForm({ ...packageForm, price: e.target.value, customPrice: e.target.value })}
+                          className="w-full pl-7 pr-3 py-2 bg-white border border-slate-300 rounded-xl font-extrabold text-slate-900 focus:border-emerald-500 focus:outline-hidden"
+                          placeholder="e.g. 2800"
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-400 mt-1 block">Full price for 3 meals daily</span>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Discount % Badge</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="90"
+                        value={packageForm.discount}
+                        onChange={(e) => setPackageForm({ ...packageForm, discount: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-slate-800 focus:border-emerald-500 focus:outline-hidden"
+                        placeholder="0"
+                      />
+                      <span className="text-[10px] text-slate-400 mt-1 block">e.g. 5 shows &quot;Save 5%&quot; badge</span>
+                    </div>
+                  </div>
+
+                  {/* Optional per-meal & per-slot price overrides */}
+                  {(() => {
+                    const oneDayCard = durationOptions.find(o => Number(o.days) === 1 && o.id !== editingPackageId);
+                    const modalDays = Number(packageForm.days) || 1;
+                    const modalDiscount = Number(packageForm.discount) || 0;
+                    const calcAutoSlotPrice = (slotKey: string, fallbackRatio: number) => {
+                      if (oneDayCard?.slotPrices && (oneDayCard.slotPrices as any)[slotKey]) {
+                        return Math.round(Number((oneDayCard.slotPrices as any)[slotKey]) * modalDays * (1 - modalDiscount / 100));
+                      }
+                      const baseP = Number(packageForm.price || packageForm.customPrice) || 0;
+                      return Math.round(baseP * fallbackRatio * (1 - modalDiscount / 100));
+                    };
+                    const auto1Meal = Number(packageForm.price) > 0 ? Math.round(Number(packageForm.price) * 0.40) : 0;
+                    const auto2Meal = Number(packageForm.price) > 0 ? Math.round(Number(packageForm.price) * 0.72) : 0;
+
                     return (
-                      <li key={i} className="flex items-center gap-2.5">
-                        <CheckCircle2 className={`w-4 h-4 shrink-0 ${isFeatured ? 'text-emerald-300' : 'text-emerald-500'}`} />
-                        <span className="font-medium">{resolved}</span>
-                      </li>
+                      <div className="pt-3 border-t border-slate-200/80 space-y-3">
+                        <div>
+                          <span className="text-[11px] font-extrabold text-slate-800 block">
+                            Custom Prices for Different Slots &amp; Meals (₹)
+                          </span>
+                          <span className="text-[10px] text-slate-500 block">
+                            Optionally set custom prices for specific meal counts or individual slots. Leave any blank to scale automatically.
+                          </span>
+                        </div>
+
+                        {/* 1 Meal / Day Slots */}
+                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                            <span className="text-[11px] font-black uppercase tracking-wider text-slate-700">
+                              1 Meal / Day Slots
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-400 font-semibold whitespace-nowrap">General 1-Meal Price:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.price1Meal}
+                                onChange={(e) => setPackageForm({ ...packageForm, price1Meal: e.target.value })}
+                                className="w-28 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={auto1Meal > 0 ? `Auto (₹${auto1Meal})` : "Auto (~40%)"}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-slate-100">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-1">Breakfast (₹)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.priceBreakfast}
+                                onChange={(e) => setPackageForm({ ...packageForm, priceBreakfast: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={calcAutoSlotPrice('breakfast', 0.35) > 0 ? `Auto (₹${calcAutoSlotPrice('breakfast', 0.35)})` : "e.g. 180"}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-1">Lunch (₹)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.priceLunch}
+                                onChange={(e) => setPackageForm({ ...packageForm, priceLunch: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={calcAutoSlotPrice('lunch', 0.40) > 0 ? `Auto (₹${calcAutoSlotPrice('lunch', 0.40)})` : "e.g. 220"}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-1">Dinner (₹)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.priceDinner}
+                                onChange={(e) => setPackageForm({ ...packageForm, priceDinner: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={calcAutoSlotPrice('dinner', 0.40) > 0 ? `Auto (₹${calcAutoSlotPrice('dinner', 0.40)})` : "e.g. 200"}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 2 Meals / Day Slots */}
+                        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                            <span className="text-[11px] font-black uppercase tracking-wider text-slate-700">
+                              2 Meals / Day Slots
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-400 font-semibold whitespace-nowrap">General 2-Meal Price:</span>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.price2Meals}
+                                onChange={(e) => setPackageForm({ ...packageForm, price2Meals: e.target.value })}
+                                className="w-28 px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={auto2Meal > 0 ? `Auto (₹${auto2Meal})` : "Auto (~72%)"}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2.5 pt-2 border-t border-slate-100">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-1">Breakfast &amp; Lunch (₹)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.priceBreakfastLunch}
+                                onChange={(e) => setPackageForm({ ...packageForm, priceBreakfastLunch: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={calcAutoSlotPrice('breakfast-lunch', 0.68) > 0 ? `Auto (₹${calcAutoSlotPrice('breakfast-lunch', 0.68)})` : "e.g. 350"}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-1">Lunch &amp; Dinner (₹)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.priceLunchDinner}
+                                onChange={(e) => setPackageForm({ ...packageForm, priceLunchDinner: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={calcAutoSlotPrice('lunch-dinner', 0.76) > 0 ? `Auto (₹${calcAutoSlotPrice('lunch-dinner', 0.76)})` : "e.g. 400"}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-1">Breakfast &amp; Dinner (₹)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={packageForm.priceBreakfastDinner}
+                                onChange={(e) => setPackageForm({ ...packageForm, priceBreakfastDinner: e.target.value })}
+                                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                                placeholder={calcAutoSlotPrice('breakfast-dinner', 0.70) > 0 ? `Auto (₹${calcAutoSlotPrice('breakfast-dinner', 0.70)})` : "e.g. 380"}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     );
-                  })}
-                </ul>
+                  })()}
+                </div>
 
-                <button 
-                  type="button"
-                  className={`w-full py-3.5 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2 ${
-                    isFeatured 
-                      ? 'bg-white text-emerald-700 hover:bg-slate-50' 
-                      : 'bg-slate-100 text-slate-800 hover:bg-emerald-50 hover:text-emerald-600'
-                  }`}
-                >
-                  Select Plan <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 6. Edit / Add Duration Package Modal */}
-      {isPackageModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200">
-            <button
-              type="button"
-              onClick={() => setIsPackageModalOpen(false)}
-              className="absolute top-5 right-5 p-1.5 rounded-full text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl">
-                <Tag className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-slate-900">
-                  {packageModalMode === 'edit' ? `Edit ${packageForm.title}` : 'Add Duration Package'}
-                </h3>
-                <p className="text-xs text-slate-500">Configure pricing, discount, and features for this card</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleSavePackageModal} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Package Title</label>
+                  <label className="block font-bold text-slate-700 mb-1">Card Subtitle / Description</label>
                   <input
                     type="text"
-                    required
-                    value={packageForm.title}
-                    onChange={(e) => setPackageForm({ ...packageForm, title: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800"
-                    placeholder="e.g. 15 Day Plan"
+                    value={packageForm.description}
+                    onChange={(e) => setPackageForm({ ...packageForm, description: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                    placeholder="e.g. Build healthy habits over two weeks."
                   />
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Duration in Days</label>
+                {/* Popular Card Toggle */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-emerald-950 block">Highlight as "Most Popular" Card</span>
+                    <span className="text-[11px] text-emerald-700 block">
+                      Gives the card the prominent green background and top floating badge
+                    </span>
+                  </div>
                   <input
-                    type="number"
-                    min="1"
-                    required
-                    value={packageForm.days}
-                    onChange={(e) => setPackageForm({ ...packageForm, days: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800"
-                    placeholder="15"
+                    type="checkbox"
+                    checked={packageForm.popular}
+                    onChange={(e) => setPackageForm({ ...packageForm, popular: e.target.checked })}
+                    className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Card Hook / Description</label>
-                <input
-                  type="text"
-                  value={packageForm.description}
-                  onChange={(e) => setPackageForm({ ...packageForm, description: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800"
-                  placeholder="e.g. Build healthy habits over two weeks."
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Discount % (e.g. 5, 10)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="90"
-                    value={packageForm.discount}
-                    onChange={(e) => setPackageForm({ ...packageForm, discount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800"
-                  />
-                </div>
+                {packageForm.popular && (
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Badge Text</label>
+                    <input
+                      type="text"
+                      value={packageForm.badge}
+                      onChange={(e) => setPackageForm({ ...packageForm, badge: e.target.value })}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                      placeholder="MOST POPULAR"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Custom Price Override (Optional ₹)
+                    Card Features / Bullet Points (one per line)
                   </label>
-                  <input
-                    type="number"
-                    value={packageForm.customPrice}
-                    onChange={(e) => setPackageForm({ ...packageForm, customPrice: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800"
-                    placeholder="Leave empty for auto"
+                  <textarea
+                    rows={3}
+                    value={packageForm.featuresText}
+                    onChange={(e) => setPackageForm({ ...packageForm, featuresText: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800 focus:bg-white focus:border-emerald-500 focus:outline-hidden"
+                    placeholder="{meal_count} Meals daily&#10;Free daily delivery&#10;{plan_title} macros"
                   />
-                </div>
-              </div>
-
-              {/* Popular Card Toggle */}
-              <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
-                <div>
-                  <span className="font-extrabold text-emerald-950 block">Highlight as "Most Popular" Card</span>
-                  <span className="text-[11px] text-emerald-700 block">
-                    Gives the card the prominent green background and top floating badge
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Use {'{meal_count}'} for dynamic meal slot and {'{plan_title}'} for plan name.
                   </span>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={packageForm.popular}
-                  onChange={(e) => setPackageForm({ ...packageForm, popular: e.target.checked })}
-                  className="w-5 h-5 accent-emerald-600 rounded cursor-pointer"
-                />
               </div>
 
-              {packageForm.popular && (
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Badge Text</label>
-                  <input
-                    type="text"
-                    value={packageForm.badge}
-                    onChange={(e) => setPackageForm({ ...packageForm, badge: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800"
-                    placeholder="MOST POPULAR"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Card Features / Bullet Points (one per line)
-                </label>
-                <textarea
-                  rows={3}
-                  value={packageForm.featuresText}
-                  onChange={(e) => setPackageForm({ ...packageForm, featuresText: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800"
-                  placeholder="{meal_count} Meals daily&#10;Free daily delivery&#10;{plan_title} macros"
-                />
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  Use {'{meal_count}'} for dynamic meal slot and {'{plan_title}'} for plan name.
-                </span>
-              </div>
-
-              <div className="pt-3 border-t border-slate-200 flex justify-end gap-2">
+              {/* Modal Footer (Always visible) */}
+              <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-200/80 flex items-center justify-end gap-2.5 shrink-0 rounded-b-3xl">
                 <button
                   type="button"
                   onClick={() => setIsPackageModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors"
+                  className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-xs"
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors shadow-sm cursor-pointer"
                 >
-                  {packageModalMode === 'edit' ? 'Update Card' : 'Add Package'}
+                  {packageModalMode === 'edit' ? 'Save Card Changes' : 'Add Duration Card'}
                 </button>
               </div>
             </form>
@@ -1290,7 +1561,7 @@ export function AdminSubscriptionPageEditor({
         </div>
       )}
 
-      {/* 7. Add Plan Modal (Choose Your Path card) */}
+      {/* 6. Add Plan Modal (Choose Your Path card) */}
       {isAddPlanModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200">

@@ -57,12 +57,26 @@ export function CheckoutDetails() {
   const [currentPlanId, setCurrentPlanId] = useState<string>(
     routePlanId || queryPlanId || 'balance'
   );
-  const [durationDays, setDurationDays] = useState<number>(
-    parseInt(routeDurationId || queryDuration || '7')
+  const [selectedDurationId, setSelectedDurationId] = useState<string>(
+    routeDurationId || queryDuration || ''
   );
+  const [durationDays, setDurationDays] = useState<number>(() => {
+    const rawPlans = getAdminPlans();
+    const activeP = rawPlans.find(p => p.id === (routePlanId || queryPlanId) || (p as any).planId === (routePlanId || queryPlanId));
+    const matched = activeP?.durationOptions?.find(d => d.id === routeDurationId || d.id === queryDuration || String(d.days) === routeDurationId);
+    if (matched?.days && Number(matched.days) > 0 && Number(matched.days) <= 90) {
+      return Number(matched.days);
+    }
+    const rawParsed = parseInt(routeDurationId || queryDuration || '7', 10);
+    return (!isNaN(rawParsed) && rawParsed > 0 && rawParsed <= 90) ? rawParsed : 7;
+  });
 
   const [adminPlans, setAdminPlans] = useState(() => getAdminPlans());
   const plans = adminPlans;
+
+  const adminPlan = adminPlans.find(p => p.id === currentPlanId || (p as any).planId === currentPlanId);
+  const plan = adminPlan || adminPlans[0] || ({ id: currentPlanId, title: 'Custom Meal Plan', pricePerWeek: 2800, calories: '1800 - 2000 kcal/day', benefits: [] } as any);
+  const Icon = iconMap[plan.icon as keyof typeof iconMap] || Scale;
 
   useEffect(() => {
     const sync = () => setAdminPlans(getAdminPlans());
@@ -74,9 +88,15 @@ export function CheckoutDetails() {
     };
   }, []);
 
-  const adminPlan = adminPlans.find(p => p.id === currentPlanId || (p as any).planId === currentPlanId);
-  const plan = adminPlan || adminPlans[0] || ({ id: currentPlanId, title: 'Custom Meal Plan', pricePerWeek: 2800, calories: '1800 - 2000 kcal/day', benefits: [] } as any);
-  const Icon = iconMap[plan.icon as keyof typeof iconMap] || Scale;
+  useEffect(() => {
+    if (adminPlan?.durationOptions) {
+      const matched = adminPlan.durationOptions.find(d => (selectedDurationId ? d.id === selectedDurationId : false) || d.id === routeDurationId || d.id === queryDuration || String(d.days) === routeDurationId);
+      if (matched?.days && Number(matched.days) > 0 && Number(matched.days) <= 90) {
+        setDurationDays(Number(matched.days));
+        if (!selectedDurationId) setSelectedDurationId(matched.id);
+      }
+    }
+  }, [adminPlan, routeDurationId, queryDuration, selectedDurationId]);
 
   const initialMeals = (searchParams.get('meals') as '1' | '2' | '3') || '3';
   const initialSlotParam = searchParams.get('slot');
@@ -108,24 +128,99 @@ export function CheckoutDetails() {
 
   // Dynamic duration option matching from admin config
   const matchedDurationOption = adminPlan?.durationOptions?.find(
-    d => d.days === durationDays || d.id === routeDurationId || d.id === queryDuration
+    d => (selectedDurationId ? d.id === selectedDurationId : false) || d.days === durationDays || d.id === routeDurationId || d.id === queryDuration
   );
 
   const discountPercent = matchedDurationOption !== undefined 
-    ? matchedDurationOption.discount 
-    : (durationDays === 30 ? 10 : durationDays === 15 ? 5 : 0);
+    ? (Number(matchedDurationOption.discount) || 0)
+    : 0;
 
-  const multiplier = adminPlan?.mealOptions?.find(m => m.id === mealsPerDay)?.multiplier ?? (MEAL_MULTIPLIERS[mealsPerDay] || 1);
-  const customPriceOverride = matchedDurationOption?.customPrice;
+  const getMealMultiplier = (mId: string): number => {
+    const found = adminPlan?.mealOptions?.find(m => m.id === mId);
+    if (found && typeof found.multiplier === 'number' && found.multiplier > 0) {
+      if (mId === '1' && found.multiplier >= 0.9) return 0.40;
+      if (mId === '2' && (found.multiplier >= 0.95 || found.multiplier < 0.3)) return 0.72;
+      return found.multiplier;
+    }
+    return MEAL_MULTIPLIERS[mId] || (mId === '1' ? 0.40 : mId === '2' ? 0.72 : 1.00);
+  };
 
-  const dailyBase = (plan.pricePerWeek / 7) * multiplier;
-  const subtotal = customPriceOverride && customPriceOverride > 0
-    ? customPriceOverride
-    : Math.round(dailyBase * durationDays);
-  const discountAmount = customPriceOverride && customPriceOverride > 0
+  const multiplier = getMealMultiplier(mealsPerDay);
+
+  let calculatedPrice: number;
+  let isExplicitPrice = false;
+
+  const activeSlot = mealsPerDay === '1' || mealsPerDay === '2' ? selectedSlot : undefined;
+
+  // 1. Explicit slot price on this duration option
+  if (activeSlot && matchedDurationOption?.slotPrices && (matchedDurationOption.slotPrices as any)[activeSlot] > 0) {
+    calculatedPrice = (matchedDurationOption.slotPrices as any)[activeSlot];
+    isExplicitPrice = true;
+  }
+  // 2. Proportional slot price inherited from 1-day trial
+  else if (activeSlot && adminPlan?.durationOptions) {
+    const oneDayOption = adminPlan.durationOptions.find(d => Number(d.days) === 1);
+    const oneDaySlotPrice = oneDayOption?.slotPrices && (oneDayOption.slotPrices as any)[activeSlot];
+    if (oneDaySlotPrice && Number(oneDaySlotPrice) > 0) {
+      calculatedPrice = Math.round(Number(oneDaySlotPrice) * durationDays * (1 - (discountPercent || 0) / 100));
+      isExplicitPrice = true;
+    } else if (matchedDurationOption?.prices && matchedDurationOption.prices[mealsPerDay] && matchedDurationOption.prices[mealsPerDay]! > 0) {
+      calculatedPrice = matchedDurationOption.prices[mealsPerDay]!;
+      isExplicitPrice = true;
+    } else if (matchedDurationOption?.price || matchedDurationOption?.customPrice) {
+      const cardPrice = matchedDurationOption.price || matchedDurationOption.customPrice || 0;
+      calculatedPrice = Math.round(cardPrice * multiplier * (1 - (discountPercent || 0) / 100));
+      isExplicitPrice = true;
+    } else {
+      const dailyBase = (plan.pricePerWeek / 7) * multiplier;
+      calculatedPrice = Math.round(dailyBase * durationDays * (1 - (discountPercent || 0) / 100));
+    }
+  }
+  // 3. Explicit meal-count price on this duration option
+  else if (matchedDurationOption?.prices && matchedDurationOption.prices[mealsPerDay] && matchedDurationOption.prices[mealsPerDay]! > 0) {
+    calculatedPrice = matchedDurationOption.prices[mealsPerDay]!;
+    isExplicitPrice = true;
+  }
+  // 4. Proportional meal-count price inherited from 1-day trial
+  else if (mealsPerDay !== '3' && adminPlan?.durationOptions) {
+    const oneDayOption = adminPlan.durationOptions.find(d => Number(d.days) === 1);
+    const oneDayMealPrice = oneDayOption?.prices?.[mealsPerDay];
+    if (oneDayMealPrice && Number(oneDayMealPrice) > 0) {
+      calculatedPrice = Math.round(Number(oneDayMealPrice) * durationDays * (1 - (discountPercent || 0) / 100));
+      isExplicitPrice = true;
+    } else if (matchedDurationOption?.price || matchedDurationOption?.customPrice) {
+      const cardPrice = matchedDurationOption.price || matchedDurationOption.customPrice || 0;
+      calculatedPrice = Math.round(cardPrice * multiplier * (1 - (discountPercent || 0) / 100));
+      isExplicitPrice = true;
+    } else {
+      const dailyBase = (plan.pricePerWeek / 7) * multiplier;
+      calculatedPrice = Math.round(dailyBase * durationDays * (1 - (discountPercent || 0) / 100));
+    }
+  }
+  // 5. Card base price override
+  else if (matchedDurationOption?.price || matchedDurationOption?.customPrice) {
+    const cardPrice = matchedDurationOption.price || matchedDurationOption.customPrice || 0;
+    if (mealsPerDay === '3') {
+      calculatedPrice = Math.round(cardPrice * (1 - (discountPercent || 0) / 100));
+    } else {
+      calculatedPrice = Math.round(cardPrice * multiplier * (1 - (discountPercent || 0) / 100));
+    }
+    isExplicitPrice = true;
+  }
+  // 6. Base weekly fallback
+  else {
+    const dailyBase = (plan.pricePerWeek / 7) * multiplier;
+    calculatedPrice = Math.round(dailyBase * durationDays * (1 - (discountPercent || 0) / 100));
+  }
+
+  const subtotal = calculatedPrice;
+  const discountAmount = isExplicitPrice
     ? 0
     : Math.round(subtotal * (discountPercent / 100));
   const finalTotal = subtotal - discountAmount;
+  const dailyBase = durationDays > 0 
+    ? (finalTotal / durationDays) 
+    : ((plan.pricePerWeek / 7) * multiplier);
 
   interface SavedAddress {
     id?: string;
@@ -550,8 +645,12 @@ export function CheckoutDetails() {
   let daysCounted = 0;
   let endDate = new Date(startDate);
 
-  while (daysCounted < durationDays) {
-    const dateStr = `${tempDate.getFullYear()}-${tempDate.getMonth()}-${tempDate.getDate()}`;
+  let safetyLoop = 0;
+  while (daysCounted < durationDays && safetyLoop < 365) {
+    safetyLoop++;
+    const mPadded = String(tempDate.getMonth() + 1).padStart(2, '0');
+    const dPadded = String(tempDate.getDate()).padStart(2, '0');
+    const dateStr = `${tempDate.getFullYear()}-${mPadded}-${dPadded}`;
     if (!skippedDates.includes(dateStr)) {
       activeDates.add(dateStr);
       daysCounted++;
@@ -564,7 +663,9 @@ export function CheckoutDetails() {
     const clickedDate = new Date(year, month, day);
     if (clickedDate < startDate) return; // Cannot skip past dates
 
-    const dateStr = `${year}-${month}-${day}`;
+    const mPadded = String(month + 1).padStart(2, '0');
+    const dPadded = String(day).padStart(2, '0');
+    const dateStr = `${year}-${mPadded}-${dPadded}`;
     setSkippedDates(prev => 
       prev.includes(dateStr) 
         ? prev.filter(d => d !== dateStr) 
@@ -661,11 +762,13 @@ export function CheckoutDetails() {
     }
 
     const userEmail = currentUser?.email || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).email : '');
+    const generatedSubId = `SUB-${Math.floor(100 + Math.random() * 900)}`;
 
     // 2. Persist subscription in backend if possible
     try {
       const subPayload = {
-        id: `SUB-${Math.floor(100 + Math.random() * 900)}`,
+        id: generatedSubId,
+        subId: generatedSubId,
         customerName: formData.name.trim(),
         customerEmail: userEmail || 'user@shift24.food',
         customerPhone: formData.phone.trim(),
@@ -688,6 +791,8 @@ export function CheckoutDetails() {
         longitude: mapCoords?.lng,
         allergies: formData.allergies,
         preferences: formData.preferences,
+        skippedDates: skippedDates,
+        skippedMeals: [],
       };
       await createBackendSubscription(subPayload);
 
@@ -749,9 +854,15 @@ export function CheckoutDetails() {
 
     // 3. Save local active subscription state
     const subDetails = {
+      id: generatedSubId,
+      subId: generatedSubId,
       planName: `${plan.title} Plan`,
       duration: durationDays === 1 ? '1-Day Trial' : `${durationDays} Days`,
+      durationDays,
       meals: getMealSlotSummary(),
+      mealsPerDay: String(mealsPerDay),
+      slot: selectedSlot,
+      slotLabel: getMealSlotSummary(),
       totalPrice: `₹${finalTotal}`,
       paymentMethod: paymentLabel,
       status: 'Active',
@@ -765,6 +876,8 @@ export function CheckoutDetails() {
       customerName: formData.name.trim(),
       customerPhone: formData.phone.trim(),
       customerEmail: userEmail || 'user@shift24.food',
+      skippedDates: skippedDates,
+      skippedMeals: [],
     };
     localStorage.setItem('activeSubscription', JSON.stringify(subDetails));
     localStorage.setItem('isLoggedIn', 'true');
@@ -827,7 +940,14 @@ export function CheckoutDetails() {
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => setCurrentPlanId(p.id)}
+                      onClick={() => {
+                        setCurrentPlanId(p.id);
+                        const firstOpt = p.durationOptions?.[0];
+                        if (firstOpt) {
+                          setSelectedDurationId(firstOpt.id);
+                          setDurationDays(firstOpt.days);
+                        }
+                      }}
                       className={`p-3 rounded-xl border text-center transition-all text-xs font-bold ${
                         currentPlanId === p.id 
                           ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 shadow-xs' 
@@ -843,26 +963,39 @@ export function CheckoutDetails() {
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Plan Duration</label>
                   <span className="text-xs text-slate-400 font-medium">Choose your commitment</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {[
-                    { days: 1, label: '1-Day Trial' },
-                    { days: 7, label: '7 Days' },
-                    { days: 15, label: '15 Days (5% off)' },
-                    { days: 30, label: '30 Days (10% off)' },
-                  ].map(d => (
-                    <button
-                      key={d.days}
-                      type="button"
-                      onClick={() => setDurationDays(d.days)}
-                      className={`p-2.5 rounded-xl border text-center transition-all text-xs font-bold ${
-                        durationDays === d.days
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 shadow-xs' 
-                          : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200'
-                      }`}
-                    >
-                      {d.label}
-                    </button>
-                  ))}
+                <div className={`grid grid-cols-2 ${
+                  (adminPlan?.durationOptions?.length || 3) <= 2 ? 'sm:grid-cols-2' :
+                  (adminPlan?.durationOptions?.length || 3) === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-4'
+                } gap-2.5`}>
+                  {(adminPlan?.durationOptions && adminPlan.durationOptions.length > 0
+                    ? [...adminPlan.durationOptions].sort((a, b) => (Number(a.days) || 0) - (Number(b.days) || 0))
+                    : [
+                        { id: '1-day', days: 1, title: '1-Day Trial', discount: 0 },
+                        { id: '7-day', days: 7, title: '7 Days', discount: 0 },
+                        { id: '30-day', days: 30, title: '30 Days', discount: 0 }
+                      ]
+                  ).map(d => {
+                    const isSelected = selectedDurationId ? selectedDurationId === d.id : durationDays === d.days;
+                    const discountBadge = d.discount > 0 ? ` (${d.discount}% off)` : '';
+                    const titleText = d.days === 1 ? '1-Day Trial' : `${d.days} Days`;
+                    return (
+                      <button
+                        key={d.id || d.days}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDurationId(d.id);
+                          setDurationDays(d.days);
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all text-xs font-bold ${
+                          isSelected
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/20 shadow-xs' 
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-200'
+                        }`}
+                      >
+                        {titleText}{discountBadge}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1764,7 +1897,9 @@ export function CheckoutDetails() {
                    const day = i + 1;
                    const year = currentMonth.getFullYear();
                    const month = currentMonth.getMonth();
-                   const dateStr = `${year}-${month}-${day}`;
+                   const mPadded = String(month + 1).padStart(2, '0');
+                   const dPadded = String(day).padStart(2, '0');
+                   const dateStr = `${year}-${mPadded}-${dPadded}`;
                    const clickedDate = new Date(year, month, day);
                    
                    const isPast = clickedDate < startDate;
@@ -1811,7 +1946,7 @@ export function CheckoutDetails() {
                        Extended dates: <span className="text-emerald-700 font-bold">{
                          Array.from(activeDates).slice(-skippedDates.length).map(d => {
                            const [y, m, date] = d.split('-');
-                           return new Date(Number(y), Number(m), Number(date)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                           return new Date(Number(y), Number(m) - 1, Number(date)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                          }).join(', ')
                        }</span>
                      </p>

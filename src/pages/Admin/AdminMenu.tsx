@@ -44,6 +44,7 @@ import {
   deleteBackendMenuItem 
 } from '../../services/api';
 import toast from 'react-hot-toast';
+import { showConfirmToast } from '../../utils/confirmToast';
 
 export interface MicroNutrient {
   name: string;
@@ -190,7 +191,10 @@ export function AdminMenu() {
           benefits: p.benefits || [],
           durationOptions: Array.isArray(p.durationOptions) && p.durationOptions.length > 0 ? p.durationOptions : DEFAULT_DURATION_OPTIONS,
           mealOptions: Array.isArray(p.mealOptions) && p.mealOptions.length > 0 ? p.mealOptions : DEFAULT_MEAL_OPTIONS,
-          active: p.active !== false
+          active: p.active !== false,
+          popular: Boolean(p.popular),
+          badge: p.popular ? (p.badge || 'MOST POPULAR') : '',
+          dailyCommission: p.dailyCommission !== undefined ? p.dailyCommission : 100
         }));
 
         // Keep any local plans that aren't in backend yet
@@ -355,22 +359,29 @@ export function AdminMenu() {
     toast.success(`Plan "${newPlanObj.title}" created successfully!`);
   };
 
-  const handleDeleteCustomPlan = async (planId: string) => {
+  const handleDeleteCustomPlan = (planId: string) => {
     if (plans.length <= 1) {
       toast.error('At least one meal plan is required');
       return;
     }
     const planToDelete = plans.find(p => p.id === planId);
-    if (!window.confirm(`Are you sure you want to delete "${planToDelete?.title || planId}" and all its assigned meals?`)) return;
-    try {
-      await deleteBackendPlan(planId);
-    } catch {}
+    showConfirmToast({
+      title: `Delete plan "${planToDelete?.title || planId}"?`,
+      description: 'This will remove the plan and all meals assigned to it. This action cannot be undone.',
+      confirmText: 'Delete Plan',
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        try {
+          await deleteBackendPlan(planId);
+        } catch {}
 
-    const updated = plans.filter(p => p.id !== planId);
-    setPlans(updated);
-    saveAdminPlans(updated);
-    setSelectedPlanId(updated[0]?.id || 'weight-loss');
-    toast.success(`Plan "${planToDelete?.title || planId}" deleted successfully`);
+        const updated = plans.filter(p => p.id !== planId);
+        setPlans(updated);
+        saveAdminPlans(updated);
+        setSelectedPlanId(updated[0]?.id || 'weight-loss');
+        toast.success(`Plan "${planToDelete?.title || planId}" deleted successfully`);
+      }
+    });
   };
 
   // Food Item Management Handlers
@@ -488,26 +499,32 @@ export function AdminMenu() {
     toast.success(`${payload.name} saved for Day ${payload.day} (${payload.mealType})!`);
   };
 
-  const handleDeleteFood = async (food: FoodItem) => {
-    if (!window.confirm(`Are you sure you want to remove "${food.name}" from this meal slot?`)) return;
+  const handleDeleteFood = (food: FoodItem) => {
+    showConfirmToast({
+      title: `Remove "${food.name}"?`,
+      description: `Remove this item from Day ${food.day} (${food.mealType}) slot?`,
+      confirmText: 'Remove',
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        try {
+          await deleteBackendMenuItem({
+            id: food.id || food._id,
+            planId: food.planId,
+            day: food.day,
+            mealType: food.mealType
+          });
+        } catch (err) {
+          console.warn('Backend delete error:', err);
+        }
 
-    try {
-      await deleteBackendMenuItem({
-        id: food.id || food._id,
-        planId: food.planId,
-        day: food.day,
-        mealType: food.mealType
-      });
-    } catch (err) {
-      console.warn('Backend delete error:', err);
-    }
-
-    const updated = menuItems.filter(
-      m => !(m.planId === food.planId && m.day === food.day && m.mealType === food.mealType)
-    );
-    setMenuItems(updated);
-    saveAdminFoods(updated);
-    toast.success(`Removed from Day ${food.day} ${food.mealType}`);
+        const updated = menuItems.filter(
+          m => !(m.planId === food.planId && m.day === food.day && m.mealType === food.mealType)
+        );
+        setMenuItems(updated);
+        saveAdminFoods(updated);
+        toast.success(`Removed from Day ${food.day} ${food.mealType}`);
+      }
+    });
   };
 
   const handleAddDay = () => {

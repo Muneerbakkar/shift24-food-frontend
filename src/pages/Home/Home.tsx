@@ -17,7 +17,7 @@ export function Home() {
       <FeaturedCarousel />
       <HowItWorks />
       <FeaturedMenuCarousel />
-      <MealPlans onSelectPlan={(id) => navigate(`/plan/${id}`)} />
+      <MealPlans onSelectPlan={(id) => { navigate(`/plan/${id}`); }} />
       <AboutTheFood />
       <WhyUs />
       <Testimonials />

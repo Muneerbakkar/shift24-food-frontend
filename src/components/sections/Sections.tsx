@@ -1,13 +1,16 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingDown, Scale, TrendingUp, CheckCircle2, ArrowRight, MapPin, Mail, Phone, ChevronLeft, ChevronRight, ClipboardList, ChefHat, Truck, Utensils, Play, Star, Quote, Plus, Minus, MessageCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { TrendingDown, Scale, TrendingUp, Sparkles, Flame, CheckCircle2, ArrowRight, MapPin, Mail, Phone, ChevronLeft, ChevronRight, ClipboardList, ChefHat, Truck, Utensils, Play, Star, Quote, Plus, Minus, MessageCircle, User } from 'lucide-react';
 import { getAdminPlans, AdminPlanConfig, saveAdminPlans, getPlanSortRank } from '../../pages/Admin/adminData';
 import { fetchPlans } from '../../services/api';
 
 const iconMap = {
-  TrendingDown: TrendingDown,
-  Scale: Scale,
-  TrendingUp: TrendingUp,
+  TrendingDown,
+  Scale,
+  TrendingUp,
+  Sparkles,
+  Flame,
 };
 
 export function HowItWorks() {
@@ -15,7 +18,7 @@ export function HowItWorks() {
     {
       icon: ClipboardList,
       title: "1. Choose Your Plan",
-      description: "Select from our weight loss, balance, or weight gain plans tailored to your goals.",
+      description: "Enjoy our wholesome, chef-curated healthy meal plan, thoughtfully crafted and suitable for everyone.",
       color: "bg-blue-50 text-blue-500 border-blue-100"
     },
     {
@@ -27,7 +30,7 @@ export function HowItWorks() {
     {
       icon: Truck,
       title: "3. Fast Delivery",
-      description: "Enjoy zero-emission transit with our fresh-not-frozen nationwide delivery network.",
+      description: "Enjoy fresh, punctual daily deliveries directly to your doorstep or office across Kakkanad.",
       color: "bg-orange-50 text-orange-500 border-orange-100"
     },
     {
@@ -163,7 +166,7 @@ export function FeaturedCarousel() {
   );
 }
 
-export function MealPlans({ onSelectPlan }: { onSelectPlan: (id: string) => void }) {
+export function MealPlans({ onSelectPlan }: { onSelectPlan: (id: string, meals?: string) => void }) {
   const [plansList, setPlansList] = useState<AdminPlanConfig[]>(() => getAdminPlans());
 
   useEffect(() => {
@@ -197,15 +200,31 @@ export function MealPlans({ onSelectPlan }: { onSelectPlan: (id: string) => void
 
   const activePlans = sortedPlans.filter(p => p.active !== false);
 
-  // Exactly ONE plan is featured across the entire list (never multiple)
+  // Exactly ONE plan is featured if marked popular in admin panel (or null if none)
   const featuredPlanKey = useMemo(() => {
     const explicitPopular = activePlans.find(p => (p as any).popular === true);
-    if (explicitPopular) return explicitPopular.id || (explicitPopular as any).planId;
-    const balancePlan = activePlans.find(p => p.id === 'balance' || (p as any).planId === 'balance' || p.id === 'balance-weight');
-    if (balancePlan) return balancePlan.id || (balancePlan as any).planId;
-    if (activePlans.length > 1) return activePlans[1].id || (activePlans[1] as any).planId;
-    return activePlans[0]?.id || (activePlans[0] as any)?.planId;
+    return explicitPopular ? (explicitPopular.id || (explicitPopular as any).planId) : null;
   }, [activePlans]);
+
+  const getIconForPlan = (plan: any, planKey: string, index: number) => {
+    if ((plan as any).icon && (iconMap as any)[(plan as any).icon]) {
+      return (iconMap as any)[(plan as any).icon];
+    }
+    const key = `${planKey} ${plan.title || ''}`.toLowerCase();
+    if (key.includes('loss') || key.includes('shed') || key.includes('burn')) return Flame;
+    if (key.includes('gain') || key.includes('muscle') || key.includes('bulk')) return TrendingUp;
+    if (key.includes('balance') || key.includes('maintain') || key.includes('scale')) return Scale;
+    return Sparkles;
+  };
+
+  const getIconBgForPlan = (plan: any, planKey: string, isFeatured: boolean) => {
+    if (isFeatured) return 'bg-white/20 text-white';
+    const key = `${planKey} ${plan.title || ''}`.toLowerCase();
+    if (key.includes('loss') || key.includes('shed') || key.includes('burn')) return 'bg-rose-50 text-rose-500';
+    if (key.includes('gain') || key.includes('muscle') || key.includes('bulk')) return 'bg-orange-50 text-orange-500';
+    if (key.includes('balance') || key.includes('maintain') || key.includes('scale')) return 'bg-emerald-50 text-emerald-600';
+    return 'bg-sky-50 text-sky-500';
+  };
 
   return (
     <section id="about" className="py-12 md:py-24 bg-white border-t border-slate-100 overflow-hidden">
@@ -214,79 +233,144 @@ export function MealPlans({ onSelectPlan }: { onSelectPlan: (id: string) => void
           <h2 className="text-2xl md:text-4xl font-bold text-slate-900 mb-4">Choose Your Path</h2>
           <p className="text-slate-500 max-w-2xl mx-auto text-base md:text-lg">We've designed specialized nutrition programs to help you achieve your specific body goals without sacrificing flavor.</p>
         </div>
-        <div className={`grid grid-cols-1 ${activePlans.length === 1 ? 'max-w-md mx-auto' : activePlans.length === 2 ? 'max-w-3xl mx-auto lg:grid-cols-2' : 'lg:grid-cols-3'} gap-6 pb-12`}>
-          {activePlans.map((plan, index) => {
-            const planKey = plan.id || (plan as any).planId || `plan-${index}`;
-            const isFeatured = planKey === featuredPlanKey;
 
-            // Resolve proper icon based on plan type rather than arbitrary index
-            const getIconForPlan = () => {
-              if ((plan as any).icon && (iconMap as any)[(plan as any).icon]) {
-                return (iconMap as any)[(plan as any).icon];
-              }
-              const key = `${planKey} ${plan.title || ''}`.toLowerCase();
-              if (key.includes('loss') || key.includes('shed') || key.includes('burn')) return TrendingDown;
-              if (key.includes('gain') || key.includes('muscle') || key.includes('bulk')) return TrendingUp;
-              if (key.includes('balance') || key.includes('maintain') || key.includes('scale')) return Scale;
-              return index === 0 ? TrendingDown : index === 1 ? TrendingUp : Scale;
-            };
-            const Icon = getIconForPlan();
+        {activePlans.length === 1 ? (
+          <div className="max-w-4xl lg:max-w-5xl mx-auto w-full pb-12">
+            {activePlans.map((plan, index) => {
+              const planKey = plan.id || (plan as any).planId || `plan-${index}`;
+              const isFeatured = planKey === featuredPlanKey;
+              const Icon = getIconForPlan(plan, planKey, index);
+              const iconBg = getIconBgForPlan(plan, planKey, isFeatured);
 
-            const iconBg = isFeatured 
-              ? 'bg-white/20 text-white' 
-              : String(planKey).toLowerCase().includes('loss') 
-              ? 'bg-blue-50 text-blue-500' 
-              : String(planKey).toLowerCase().includes('gain') 
-              ? 'bg-orange-50 text-orange-500' 
-              : 'bg-emerald-50 text-emerald-600';
-
-            const cardClasses = isFeatured 
-              ? 'bg-emerald-600 rounded-2xl md:rounded-[32px] p-6 md:p-8 flex flex-col shadow-xl text-white transform lg:scale-105 relative z-10'
-              : 'bg-white border border-slate-200 rounded-2xl md:rounded-[32px] p-6 md:p-8 flex flex-col shadow-sm hover:shadow-md transition-shadow';
-
-            return (
-              <motion.div 
-                key={planKey}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-100px" }}
-                transition={{ delay: index * 0.1 }}
-                className={cardClasses}
-              >
-                {isFeatured && (
-                  <div className="absolute top-4 right-6 md:top-6 md:right-8 bg-emerald-400 text-emerald-950 text-[9px] md:text-[10px] font-black px-2.5 py-1 rounded uppercase tracking-wider shadow-xs">
-                    {(plan as any).badge || 'Most Popular'}
-                  </div>
-                )}
-                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center mb-4 md:mb-6 ${iconBg}`}>
-                  <Icon className="w-5 h-5 md:w-6 md:h-6" />
-                </div>
-                <h3 className={`text-xl md:text-2xl font-bold mb-2 ${isFeatured ? 'text-white' : 'text-slate-800'}`}>{plan.title}</h3>
-                <p className={`text-sm mb-6 flex-grow leading-relaxed ${isFeatured ? 'text-emerald-100' : 'text-slate-500'}`}>{plan.subtitle || plan.description}</p>
-                <div className="mb-6">
-                  <span className="text-2xl md:text-3xl font-bold">₹{plan.pricePerWeek}</span>
-                  <span className={`text-sm ml-1 ${isFeatured ? 'text-emerald-200' : 'text-slate-400'}`}>/week</span>
-                </div>
-                {plan.benefits && plan.benefits.length > 0 && (
-                  <ul className="space-y-3 mb-8">
-                    {plan.benefits.map((benefit, i) => (
-                      <li key={i} className="flex items-center gap-3">
-                        <CheckCircle2 className={`w-5 h-5 shrink-0 ${isFeatured ? 'text-white' : 'text-emerald-500'}`} />
-                        <span className={`text-sm font-medium ${isFeatured ? 'text-emerald-50' : 'text-slate-700'}`}>{benefit}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <button 
-                  onClick={() => onSelectPlan(planKey)}
-                  className={`w-full py-3 font-bold rounded-xl md:rounded-2xl text-sm md:text-base ${isFeatured ? 'bg-white text-emerald-600 shadow-lg hover:bg-emerald-50' : 'bg-slate-50 text-slate-800 border border-slate-200 hover:bg-slate-100'} transition-colors mt-auto`}
+              return (
+                <motion.div 
+                  key={planKey}
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-100px" }}
+                  transition={{ delay: 0.1 }}
+                  className={`w-full relative ${
+                    isFeatured 
+                      ? 'bg-emerald-600 rounded-3xl md:rounded-[36px] p-7 md:p-12 shadow-2xl text-white' 
+                      : 'bg-white border border-slate-200 rounded-3xl md:rounded-[36px] p-7 md:p-12 shadow-sm hover:shadow-md'
+                  }`}
                 >
-                  Choose {plan.title}
-                </button>
-              </motion.div>
-            );
-          })}
-        </div>
+                  {isFeatured && (
+                    <div className="absolute top-5 right-6 md:top-8 md:right-10 bg-emerald-400 text-emerald-950 text-[10px] md:text-xs font-black px-3.5 py-1 rounded-full uppercase tracking-wider shadow-xs">
+                      {(plan as any).badge || 'Most Popular'}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+                    <div className="lg:col-span-7 space-y-4">
+                      <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center ${iconBg}`}>
+                        <Icon className="w-6 h-6 md:w-7 md:h-7" />
+                      </div>
+                      <div>
+                        <h3 className={`text-2xl sm:text-3xl md:text-4xl font-extrabold mb-2 ${isFeatured ? 'text-white' : 'text-slate-900'}`}>
+                          {plan.title}
+                        </h3>
+                        <p className={`text-sm sm:text-base leading-relaxed max-w-xl ${isFeatured ? 'text-emerald-100' : 'text-slate-500'}`}>
+                          {plan.subtitle || plan.description}
+                        </p>
+                      </div>
+                      <div className="pt-2">
+                        <span className="text-3xl sm:text-4xl md:text-5xl font-black">₹{plan.pricePerWeek}</span>
+                        <span className={`text-sm sm:text-base ml-1.5 font-semibold ${isFeatured ? 'text-emerald-200' : 'text-slate-400'}`}>/week</span>
+                      </div>
+                    </div>
+
+                    <div className={`lg:col-span-5 flex flex-col justify-between h-full space-y-6 lg:pl-6 ${isFeatured ? 'lg:border-l lg:border-white/20' : 'lg:border-l lg:border-slate-100'}`}>
+                      {plan.benefits && plan.benefits.length > 0 && (
+                        <ul className="space-y-3.5">
+                          {plan.benefits.map((benefit, i) => (
+                            <li key={i} className="flex items-center gap-3">
+                              <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${isFeatured ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-600'}`}>
+                                <CheckCircle2 className="w-4 h-4" />
+                              </div>
+                              <span className={`text-sm sm:text-base font-semibold ${isFeatured ? 'text-emerald-50' : 'text-slate-700'}`}>{benefit}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <button 
+                        onClick={() => onSelectPlan(planKey)}
+                        className={`w-full py-4 px-6 font-extrabold rounded-2xl text-base md:text-lg transition-all transform hover:scale-[1.01] shadow-lg ${
+                          isFeatured 
+                            ? 'bg-white text-emerald-700 hover:bg-emerald-50' 
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        }`}
+                      >
+                        Choose {plan.title}
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className={`grid grid-cols-1 ${
+            activePlans.length === 2 
+              ? 'max-w-5xl lg:max-w-6xl mx-auto md:grid-cols-2 gap-8' 
+              : activePlans.length === 3 
+              ? 'max-w-7xl mx-auto md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8' 
+              : 'max-w-7xl mx-auto sm:grid-cols-2 lg:grid-cols-4 gap-6'
+          } items-stretch pb-12`}>
+            {activePlans.map((plan, index) => {
+              const planKey = plan.id || (plan as any).planId || `plan-${index}`;
+              const isFeatured = planKey === featuredPlanKey;
+              const Icon = getIconForPlan(plan, planKey, index);
+              const iconBg = getIconBgForPlan(plan, planKey, isFeatured);
+
+              const cardClasses = isFeatured 
+                ? 'bg-emerald-600 rounded-2xl md:rounded-[32px] p-6 md:p-8 flex flex-col shadow-xl text-white transform lg:scale-105 relative z-10'
+                : 'bg-white border border-slate-200 rounded-2xl md:rounded-[32px] p-6 md:p-8 flex flex-col shadow-sm hover:shadow-md transition-shadow';
+
+              return (
+                <motion.div 
+                  key={planKey}
+                  initial={{ opacity: 0, y: 30 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, margin: "-100px" }}
+                  transition={{ delay: index * 0.1 }}
+                  className={`w-full ${cardClasses}`}
+                >
+                  {isFeatured && (
+                    <div className="absolute top-4 right-6 md:top-6 md:right-8 bg-emerald-400 text-emerald-950 text-[9px] md:text-[10px] font-black px-2.5 py-1 rounded uppercase tracking-wider shadow-xs">
+                      {(plan as any).badge || 'Most Popular'}
+                    </div>
+                  )}
+                  <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center mb-4 md:mb-6 ${iconBg}`}>
+                    <Icon className="w-5 h-5 md:w-6 md:h-6" />
+                  </div>
+                  <h3 className={`text-xl md:text-2xl font-bold mb-2 ${isFeatured ? 'text-white' : 'text-slate-800'}`}>{plan.title}</h3>
+                  <p className={`text-sm mb-6 flex-grow leading-relaxed ${isFeatured ? 'text-emerald-100' : 'text-slate-500'}`}>{plan.subtitle || plan.description}</p>
+                  <div className="mb-6">
+                    <span className="text-2xl md:text-3xl font-bold">₹{plan.pricePerWeek}</span>
+                    <span className={`text-sm ml-1 ${isFeatured ? 'text-emerald-200' : 'text-slate-400'}`}>/week</span>
+                  </div>
+                  {plan.benefits && plan.benefits.length > 0 && (
+                    <ul className="space-y-3 mb-8">
+                      {plan.benefits.map((benefit, i) => (
+                        <li key={i} className="flex items-center gap-3">
+                          <CheckCircle2 className={`w-5 h-5 shrink-0 ${isFeatured ? 'text-white' : 'text-emerald-500'}`} />
+                          <span className={`text-sm font-medium ${isFeatured ? 'text-emerald-50' : 'text-slate-700'}`}>{benefit}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <button 
+                    onClick={() => onSelectPlan(planKey)}
+                    className={`w-full py-3 font-bold rounded-xl md:rounded-2xl text-sm md:text-base ${isFeatured ? 'bg-white text-emerald-600 shadow-lg hover:bg-emerald-50' : 'bg-slate-50 text-slate-800 border border-slate-200 hover:bg-slate-100'} transition-colors mt-auto`}
+                  >
+                    Choose {plan.title}
+                  </button>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </section>
   );
@@ -515,9 +599,10 @@ export function AboutUs() {
 }
 
 export function ContactUs() {
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    alert('Message sent successfully!');
+    toast.success('Message sent successfully! Our team will get back to you soon.');
+    e.currentTarget.reset();
   };
 
   return (
@@ -603,27 +688,36 @@ export function ContactUs() {
 export function Testimonials() {
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const testimonials = [
+const testimonials = [
     {
-      name: "Sarah Jenkins",
-      role: "Busy Professional",
-      text: "Shift24 has completely transformed my week. I used to rely on takeout, but now I come home to chef-quality meals that actually help me hit my macro goals. It's effortless and delicious.",
-      rating: 5,
-      image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&q=80&w=150&h=150"
+      name: "Rony Joseph",
+      text: "Honestly, the best thing is that the food isn't oily or heavy. You eat lunch, feel satisfied, and there's no afternoon sluggishness or heavy stomach. Delivery has been consistently on time every day.",
+      rating: 5
     },
     {
-      name: "Michael Chen",
-      role: "Fitness Enthusiast",
-      text: "As someone who tracks every calorie, the transparent macros on these meals are a lifesaver. The 'Active' plan gives me exactly the fuel I need for heavy lifting days without any of the meal prep hassle.",
-      rating: 5,
-      image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80&w=150&h=150"
+      name: "Fathima Nasreen",
+      text: "I was skeptical about meal subscriptions, but Shift24 genuinely surprised me. The portions are filling, the vegetables taste fresh, and having clean food sorted every day takes away so much daily stress.",
+      rating: 5
     },
     {
-      name: "Emily & David",
-      role: "New Parents",
-      text: "With a newborn, cooking healthy meals went out the window. Discovering Shift24 was a game changer for us. The food is incredibly fresh, and it feels like we have a private chef.",
-      rating: 5,
-      image: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=150&h=150"
+      name: "Ananthakrishnan Nair",
+      text: "The hygiene and taste are spot on. Doesn't feel like typical mess food at all—feels clean, simple, and properly balanced. Exactly what I was looking for.",
+      rating: 5
+    },
+    {
+      name: "Merin Thomas",
+      text: "Zero drama and completely reliable. The meals arrive fresh and warm right when expected, and the taste is comforting like good home food. Very happy with the service.",
+      rating: 5
+    },
+    {
+      name: "Mohammed Faizal",
+      text: "Consistent taste and no stomach issues at all. I've been ordering for almost a month now and I genuinely look forward to lunch every day. Neatly packed and hassle-free.",
+      rating: 5
+    },
+    {
+      name: "Meera Krishna",
+      text: "Clean, wholesome food without complicated diet plans. Good variety throughout the week, fresh ingredients, and reliable daily delivery.",
+      rating: 5
     }
   ];
 
@@ -654,7 +748,7 @@ export function Testimonials() {
             </div>
             <h2 className="text-2xl md:text-4xl font-extrabold text-slate-900 mb-4">Loved by Thousands</h2>
             <p className="text-slate-500 mb-8 max-w-sm mx-auto lg:mx-0">
-              Don't just take our word for it. See what our community has to say about their Shift24 experience.
+              Don't just take our word for it. See what our Kakkanad community has to say about their Shift24 experience.
             </p>
             <div className="flex items-center justify-center lg:justify-start gap-4">
               <button 
@@ -686,11 +780,9 @@ export function Testimonials() {
               className="relative z-10 w-full bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-100"
             >
               <div className="flex flex-col md:flex-row gap-6 items-start md:items-center">
-                <img 
-                  src={testimonials[currentIndex].image} 
-                  alt={testimonials[currentIndex].name} 
-                  className="w-20 h-20 md:w-24 md:h-24 rounded-full object-cover border-4 border-emerald-50 shrink-0" 
-                />
+                <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-slate-100 border-2 border-slate-200 text-slate-400 flex items-center justify-center shrink-0 shadow-xs">
+                  <User className="w-8 h-8 md:w-10 md:h-10 text-slate-400 stroke-[1.5]" />
+                </div>
                 <div>
                   <div className="flex gap-1 mb-3">
                     {[...Array(testimonials[currentIndex].rating)].map((_, i) => (
@@ -701,8 +793,11 @@ export function Testimonials() {
                     "{testimonials[currentIndex].text}"
                   </p>
                   <div>
-                    <h4 className="font-bold text-slate-900 text-base">{testimonials[currentIndex].name}</h4>
-                    <p className="text-sm text-slate-500">{testimonials[currentIndex].role}</p>
+                    <h4 className="font-bold text-slate-900 text-base md:text-lg">{testimonials[currentIndex].name}</h4>
+                    <p className="text-xs font-semibold text-emerald-600 flex items-center gap-1.5 mt-0.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Verified Subscriber</span>
+                    </p>
                   </div>
                 </div>
               </div>
@@ -721,7 +816,7 @@ export function FAQ() {
   const faqs = [
     {
       question: "Do you deliver to Kakkanad?",
-      answer: "Yes! We proudly deliver our fresh, chef-prepared meals daily across Kochi, including Kakkanad, Edappally, Panampilly Nagar, and Fort Kochi. Check your exact pin code during checkout."
+      answer: "Yes! We currently deliver exclusively across Kakkanad, including Infopark, SmartCity, Rajagiri, and surrounding neighborhoods. Check your exact delivery address during checkout."
     },
     {
       question: "Are there vegan or gluten-free options?",

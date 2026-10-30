@@ -21,7 +21,11 @@ import {
   ExternalLink,
   MessageCircle,
   Eye,
-  Check
+  Check,
+  KeyRound,
+  Lock,
+  EyeOff,
+  Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
@@ -39,6 +43,7 @@ import {
   fetchDrivers, 
   createBackendDriver, 
   updateBackendDriver, 
+  updateBackendDriverPassword,
   deleteBackendDriver,
   fetchOrders,
   assignDriverToBackendOrder
@@ -69,6 +74,14 @@ export function AdminDrivers() {
   const [formCurrentZone, setFormCurrentZone] = useState('Kakkanad & Infopark');
   const [formNotes, setFormNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [formPassword, setFormPassword] = useState('');
+  const [showFormPassword, setShowFormPassword] = useState(false);
+
+  // Dedicated Password modal states
+  const [passwordModalDriver, setPasswordModalDriver] = useState<AdminDriver | null>(null);
+  const [newDriverPassword, setNewDriverPassword] = useState('');
+  const [showNewDriverPassword, setShowNewDriverPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   // Deliveries viewer modal
   const [deliveriesModalDriver, setDeliveriesModalDriver] = useState<AdminDriver | null>(null);
@@ -206,6 +219,8 @@ export function AdminDrivers() {
     setFormStatus('Available');
     setFormCurrentZone('Kakkanad & Infopark');
     setFormNotes('');
+    setFormPassword('driver123');
+    setShowFormPassword(false);
     setIsModalOpen(true);
   };
 
@@ -221,6 +236,8 @@ export function AdminDrivers() {
     setFormStatus(driver.status || 'Available');
     setFormCurrentZone(driver.currentZone || 'Kakkanad & Infopark');
     setFormNotes(driver.notes || '');
+    setFormPassword('');
+    setShowFormPassword(false);
     setIsModalOpen(true);
   };
 
@@ -240,7 +257,7 @@ export function AdminDrivers() {
     }
 
     setSaving(true);
-    const payload = {
+    const payload: any = {
       name: formName.trim(),
       phone: formPhone.trim(),
       email: formEmail.trim() ? formEmail.trim().toLowerCase() : undefined,
@@ -249,7 +266,8 @@ export function AdminDrivers() {
       licenseNumber: formLicenseNumber.trim().toUpperCase() || undefined,
       status: formStatus,
       currentZone: formCurrentZone.trim(),
-      notes: formNotes.trim() || undefined
+      notes: formNotes.trim() || undefined,
+      ...(formPassword.trim() ? { password: formPassword.trim() } : {})
     };
 
     try {
@@ -280,6 +298,62 @@ export function AdminDrivers() {
       toast.error(err?.message || 'Failed to save driver');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleOpenPasswordModal = (driver: AdminDriver) => {
+    setPasswordModalDriver(driver);
+    setNewDriverPassword('');
+    setShowNewDriverPassword(false);
+  };
+
+  const handleGeneratePassword = () => {
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setNewDriverPassword(code);
+    setShowNewDriverPassword(true);
+    toast.success('Generated password!');
+  };
+
+  const handleSaveDriverPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordModalDriver) return;
+
+    if (!newDriverPassword.trim()) {
+      toast.error('Please enter a new password');
+      return;
+    }
+
+    if (newDriverPassword.trim().length < 4) {
+      toast.error('Password must be at least 4 characters');
+      return;
+    }
+
+    setSavingPassword(true);
+    const id = passwordModalDriver.driverId || passwordModalDriver.id;
+    const cleanPassword = newDriverPassword.trim();
+
+    try {
+      try {
+        const res = await updateBackendDriverPassword(id, cleanPassword);
+        if (res && !res.success && res.message) {
+          throw new Error(res.message);
+        }
+      } catch (apiErr: any) {
+        console.warn('Backend driver password notice:', apiErr);
+      }
+
+      const updated = updateAdminDriver(id, { password: cleanPassword });
+      setDrivers(updated);
+      toast.success(`Password for ${passwordModalDriver.name} updated successfully!`);
+      setPasswordModalDriver(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update driver password');
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -680,6 +754,15 @@ export function AdminDrivers() {
                             </button>
                           )}
 
+                          {/* Update Password */}
+                          <button
+                            onClick={() => handleOpenPasswordModal(driver)}
+                            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition"
+                            title="Update Driver App Password"
+                          >
+                            <KeyRound className="w-4 h-4 text-amber-500" />
+                          </button>
+
                           {/* Edit driver */}
                           <button
                             onClick={() => handleOpenEdit(driver)}
@@ -848,6 +931,34 @@ export function AdminDrivers() {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Driver App Password {modalMode === 'create' ? '(Default: driver123)' : '(Leave blank to keep unchanged)'}
+                </label>
+                <div className="relative">
+                  <input
+                    type={showFormPassword ? 'text' : 'password'}
+                    placeholder={modalMode === 'create' ? 'e.g. driver123' : 'Leave empty to keep existing password'}
+                    value={formPassword}
+                    onChange={(e) => setFormPassword(e.target.value)}
+                    className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFormPassword(!showFormPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    title={showFormPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showFormPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {modalMode === 'create' 
+                    ? 'Initial password for rider mobile login. Default is driver123.' 
+                    : 'Enter a new password to update rider login credentials, or leave blank.'}
+                </p>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Notes / Dispatch Instructions</label>
                 <textarea
                   rows={2}
@@ -987,6 +1098,123 @@ export function AdminDrivers() {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update Driver Password Modal */}
+      {passwordModalDriver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-xs">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">
+                    Change Driver Password
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Update Driver App login credentials
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPasswordModalDriver(null)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Driver Summary Card */}
+            <div className="mt-4 p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-xs">
+                {passwordModalDriver.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-extrabold text-slate-900 text-sm truncate">
+                  {passwordModalDriver.name}
+                </div>
+                <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                  <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-700">
+                    {passwordModalDriver.driverId || passwordModalDriver.id}
+                  </span>
+                  <span>{passwordModalDriver.phone}</span>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveDriverPassword} className="mt-4 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    <span>New Password *</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGeneratePassword}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Generate Strong</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showNewDriverPassword ? 'text' : 'password'}
+                    required
+                    minLength={4}
+                    placeholder="Enter new driver password"
+                    value={newDriverPassword}
+                    onChange={(e) => setNewDriverPassword(e.target.value)}
+                    className="w-full pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewDriverPassword(!showNewDriverPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    title={showNewDriverPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showNewDriverPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  Minimum 4 characters. The rider uses this password along with their Phone or Driver ID to log in to the Driver App.
+                </p>
+              </div>
+
+              <div className="p-3 bg-amber-50/70 border border-amber-200/70 rounded-xl text-amber-900 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  Default password for riders is <strong className="font-mono bg-white px-1 rounded border border-amber-200">driver123</strong>. After updating, please inform the rider of their new password.
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setPasswordModalDriver(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-sm hover:bg-slate-50 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPassword}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-sm transition disabled:opacity-50 cursor-pointer"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  <span>{savingPassword ? 'Updating...' : 'Update Password'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

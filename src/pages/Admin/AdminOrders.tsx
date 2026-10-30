@@ -59,6 +59,7 @@ import {
   fetchDrivers
 } from '../../services/api';
 import toast from 'react-hot-toast';
+import { showConfirmToast } from '../../utils/confirmToast';
 import { MealLabelModal } from './MealLabelModal';
 import { OrderLocationModal } from './OrderLocationModal';
 import { AllOrdersMapModal } from './AllOrdersMapModal';
@@ -362,55 +363,63 @@ export function AdminOrders() {
     }
   };
 
-  const handleDeleteSingleOrder = async (orderId: string, e?: React.MouseEvent) => {
+  const handleDeleteSingleOrder = (orderId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (!window.confirm(`Are you sure you want to delete order ${orderId}?`)) {
-      return;
-    }
+    showConfirmToast({
+      title: `Delete order ${orderId}?`,
+      description: 'This will permanently remove the order record from dispatch and active orders.',
+      confirmText: 'Delete Order',
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        try {
+          try {
+            await deleteBackendOrder(orderId);
+          } catch (err) {
+            console.warn('Backend delete failed, removing locally:', err);
+          }
 
-    try {
-      try {
-        await deleteBackendOrder(orderId);
-      } catch (err) {
-        console.warn('Backend delete failed, removing locally:', err);
+          deleteAdminOrder(orderId);
+          setOrders(prev => prev.filter(o => o.id !== orderId));
+          setSelectedOrderIds(prev => {
+            const next = new Set(prev);
+            next.delete(orderId);
+            return next;
+          });
+          toast.success(`Order ${orderId} deleted successfully`);
+        } catch (err: any) {
+          toast.error(err?.message || 'Failed to delete order');
+        }
       }
-
-      deleteAdminOrder(orderId);
-      setOrders(prev => prev.filter(o => o.id !== orderId));
-      setSelectedOrderIds(prev => {
-        const next = new Set(prev);
-        next.delete(orderId);
-        return next;
-      });
-      toast.success(`Order ${orderId} deleted successfully`);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete order');
-    }
+    });
   };
 
-  const handleDeleteSelectedOrders = async () => {
+  const handleDeleteSelectedOrders = () => {
     const ids: string[] = Array.from(selectedOrderIds);
     if (ids.length === 0) return;
 
-    if (!window.confirm(`Are you sure you want to delete ${ids.length} selected orders?`)) {
-      return;
-    }
+    showConfirmToast({
+      title: `Delete ${ids.length} selected orders?`,
+      description: 'This will permanently remove all selected order records. This action cannot be undone.',
+      confirmText: `Delete ${ids.length} Orders`,
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        try {
+          try {
+            await deleteBackendOrdersBulk(ids);
+          } catch (err) {
+            console.warn('Backend bulk delete failed, removing locally:', err);
+          }
 
-    try {
-      try {
-        await deleteBackendOrdersBulk(ids);
-      } catch (err) {
-        console.warn('Backend bulk delete failed, removing locally:', err);
+          deleteAdminOrdersBulk(ids);
+          const idSet = new Set(ids);
+          setOrders(prev => prev.filter(o => !idSet.has(o.id)));
+          setSelectedOrderIds(new Set());
+          toast.success(`${ids.length} orders deleted successfully`);
+        } catch (err: any) {
+          toast.error(err?.message || 'Failed to delete selected orders');
+        }
       }
-
-      deleteAdminOrdersBulk(ids);
-      const idSet = new Set(ids);
-      setOrders(prev => prev.filter(o => !idSet.has(o.id)));
-      setSelectedOrderIds(new Set());
-      toast.success(`${ids.length} orders deleted successfully`);
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to delete selected orders');
-    }
+    });
   };
 
   const handleSaveCustomDeliveredTime = async (orderId: string, customTime12h: string) => {

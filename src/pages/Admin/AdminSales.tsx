@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
+  fetchSubscriptions,
   fetchSales, 
   createSaleRecord, 
   updateSaleRecord, 
@@ -116,9 +117,9 @@ const SOURCES = ['Subscription', 'Direct Order', 'Corporate Catering', 'Trial Pa
 const PAYMENT_METHODS = ['UPI', 'Credit/Debit Card', 'Net Banking', 'Cash', 'Cheque / Bank Transfer'] as const;
 
 const deriveSalesFromSubscriptions = (subs: AdminSubscription[], rate?: number): SaleItem[] => {
-  const activeRate = typeof rate === 'number' ? rate : getAdminCommissionRate();
+  const activeRate = typeof rate === 'number' && rate >= 0 ? rate : getAdminCommissionRate();
   return subs
-    .filter(sub => !isDummyCustomer(sub))
+    .filter(sub => !isDummyCustomer(sub) && sub.status !== 'Cancelled')
     .map(sub => {
       let category: SaleItem['category'] = 'Balanced Health';
       const pId = (sub.planId || '').toLowerCase();
@@ -127,7 +128,7 @@ const deriveSalesFromSubscriptions = (subs: AdminSubscription[], rate?: number):
       else if (pId.includes('gain') || pTitle.includes('gain')) category = 'Muscle Gain';
 
       const cleanId = (sub.id || '').replace(/^SUB-/, '') || 'SUB';
-      const saleDate = sub.startDate ? sub.startDate.split('T')[0] : new Date().toISOString().split('T')[0];
+      const saleDate = sub.startDate ? String(sub.startDate).split('T')[0] : new Date().toISOString().split('T')[0];
 
       let days = sub.durationDays;
       if (!days) {
@@ -136,8 +137,12 @@ const deriveSalesFromSubscriptions = (subs: AdminSubscription[], rate?: number):
       }
       if (days <= 0) days = 30;
 
-      const commissionAmount = days * activeRate;
-      const vendorPayout = Math.max(0, sub.totalPrice - commissionAmount);
+      const subPrice = typeof sub.totalPrice === 'number' 
+        ? sub.totalPrice 
+        : Number(String(sub.totalPrice || '').replace(/[^0-9.]/g, '')) || 0;
+
+      const commissionAmount = Math.min(subPrice, days * activeRate);
+      const vendorPayout = Math.max(0, subPrice - commissionAmount);
 
       return {
         id: `INV-${cleanId}`,
@@ -149,16 +154,16 @@ const deriveSalesFromSubscriptions = (subs: AdminSubscription[], rate?: number):
         description: `${sub.planTitle} (${sub.duration || `${days} Days`} - ${sub.mealsPerDay || 3} Meals/Day)`,
         category,
         quantity: 1,
-        unitPrice: sub.totalPrice,
+        unitPrice: subPrice,
         taxAmount: 0,
         discountAmount: 0,
-        totalAmount: sub.totalPrice,
+        totalAmount: subPrice,
         dailyCommissionRate: activeRate,
         durationDays: days,
         commissionAmount,
         vendorPayout,
         paymentMethod: 'UPI',
-        paymentStatus: sub.status === 'Cancelled' ? 'Refunded' : 'Completed',
+        paymentStatus: 'Completed',
         paymentReference: sub.id,
         saleDate,
         linkedId: sub.id,
@@ -168,7 +173,7 @@ const deriveSalesFromSubscriptions = (subs: AdminSubscription[], rate?: number):
 };
 
 const calculateMetricsFromSales = (items: SaleItem[], defaultRate?: number): SalesMetrics => {
-  const activeRate = typeof defaultRate === 'number' ? defaultRate : getAdminCommissionRate();
+  const activeRate = typeof defaultRate === 'number' && defaultRate >= 0 ? defaultRate : getAdminCommissionRate();
   let totalRevenue = 0;
   let totalCommission = 0;
   let totalVendorPayout = 0;
@@ -181,10 +186,24 @@ const calculateMetricsFromSales = (items: SaleItem[], defaultRate?: number): Sal
   const methodMap: Record<string, number> = {};
 
   items.forEach(s => {
-    const days = s.durationDays || 30;
-    const rate = s.dailyCommissionRate !== undefined ? s.dailyCommissionRate : activeRate;
-    const itemCommission = s.commissionAmount !== undefined ? s.commissionAmount : (s.source === 'Subscription' ? days * rate : s.totalAmount);
-    const itemVendor = s.vendorPayout !== undefined ? s.vendorPayout : Math.max(0, (s.totalAmount || 0) - itemCommission);
+    let days = s.durationDays;
+    if (!days) {
+      const match = (s.description || '').match(/\d+/);
+      days = match ? parseInt(match[0], 10) : 30;
+    }
+    if (days <= 0) days = 30;
+
+    const rate = s.source === 'Subscription' 
+      ? activeRate 
+      : (s.dailyCommissionRate !== undefined ? s.dailyCommissionRate : activeRate);
+
+    const itemCommission = s.source === 'Subscription'
+      ? Math.min(s.totalAmount, days * rate)
+      : (s.commissionAmount !== undefined ? s.commissionAmount : s.totalAmount);
+
+    const itemVendor = s.source === 'Subscription'
+      ? Math.max(0, (s.totalAmount || 0) - itemCommission)
+      : (s.vendorPayout !== undefined ? s.vendorPayout : Math.max(0, (s.totalAmount || 0) - itemCommission));
 
     if (s.paymentStatus === 'Completed') {
       totalRevenue += s.totalAmount || 0;
@@ -234,19 +253,30 @@ export function AdminSales() {
   const [tempRate, setTempRate] = useState<number>(() => getAdminCommissionRate());
 
   const [sales, setSales] = useState<SaleItem[]>(() => {
+    const subs = getAdminSubscriptions();
+    const rate = getAdminCommissionRate();
+    const derived = deriveSalesFromSubscriptions(subs, rate);
     const saved = getAdminSales();
     const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
-    if (validSaved.length > 0) return validSaved;
-    const subs = getAdminSubscriptions();
-    return deriveSalesFromSubscriptions(subs, getAdminCommissionRate());
+    const validSubIds = new Set(subs.map(s => s.id));
+    const nonOrphaned = validSaved.filter((s: any) => {
+      if (s.source === 'Subscription') return validSubIds.has(s.linkedId || '');
+      return true;
+    });
+    return nonOrphaned.length > 0 ? nonOrphaned : derived;
   });
   const [loading, setLoading] = useState(false);
   const [metrics, setMetrics] = useState<SalesMetrics>(() => {
-    const saved = getAdminSales();
-    const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
     const subs = getAdminSubscriptions();
     const rate = getAdminCommissionRate();
-    const active = validSaved.length > 0 ? validSaved : deriveSalesFromSubscriptions(subs, rate);
+    const saved = getAdminSales();
+    const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
+    const validSubIds = new Set(subs.map(s => s.id));
+    const nonOrphaned = validSaved.filter((s: any) => {
+      if (s.source === 'Subscription') return validSubIds.has(s.linkedId || '');
+      return true;
+    });
+    const active = nonOrphaned.length > 0 ? nonOrphaned : deriveSalesFromSubscriptions(subs, rate);
     return calculateMetricsFromSales(active, rate);
   });
 
@@ -304,6 +334,16 @@ export function AdminSales() {
   const loadSalesData = async () => {
     setLoading(true);
     const activeRate = getAdminCommissionRate();
+    let currentSubs = getAdminSubscriptions();
+    try {
+      const subRes = await fetchSubscriptions();
+      if (subRes && subRes.success && Array.isArray(subRes.data)) {
+        currentSubs = subRes.data;
+      }
+    } catch {}
+
+    const validSubIds = new Set(currentSubs.map((s: any) => s.id || s.subId));
+
     try {
       const params: any = {};
       if (selectedCategory !== 'All') params.category = selectedCategory;
@@ -312,7 +352,35 @@ export function AdminSales() {
 
       const res = await fetchSales(params);
       if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
-        const cleanSales = res.data.filter((s: any) => !isDummyCustomer(s));
+        const cleanSales: SaleItem[] = res.data
+          .filter((s: any) => !isDummyCustomer(s))
+          .filter((s: any) => {
+            if (s.source === 'Subscription') {
+              return validSubIds.size === 0 || validSubIds.has(s.linkedId) || validSubIds.has((s.saleId || '').replace(/^INV-/, 'SUB-'));
+            }
+            return true;
+          })
+          .map((s: any) => {
+            if (s.source === 'Subscription') {
+              let days = s.durationDays;
+              if (!days) {
+                const match = (s.description || '').match(/\d+/);
+                days = match ? parseInt(match[0], 10) : 30;
+              }
+              if (days <= 0) days = 30;
+              const comm = Math.min(s.totalAmount, days * activeRate);
+              const vendor = Math.max(0, s.totalAmount - comm);
+              return {
+                ...s,
+                dailyCommissionRate: activeRate,
+                durationDays: days,
+                commissionAmount: comm,
+                vendorPayout: vendor
+              };
+            }
+            return s;
+          });
+
         if (cleanSales.length > 0) {
           setSales(cleanSales);
           saveAdminSales(cleanSales);
@@ -327,29 +395,61 @@ export function AdminSales() {
     }
 
     // Fallback: derive sales and metrics from subscription roster
-    const currentSubs = getAdminSubscriptions();
     const currentDerived = deriveSalesFromSubscriptions(currentSubs, activeRate);
-    const saved = getAdminSales();
-    const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
-    const active = validSaved.length > 0 ? validSaved : currentDerived;
-    setSales(active);
-    setMetrics(calculateMetricsFromSales(active, activeRate));
+    setSales(currentDerived);
+    saveAdminSales(currentDerived);
+    setMetrics(calculateMetricsFromSales(currentDerived, activeRate));
   };
 
-  const handleSaveCommissionRate = (e: React.FormEvent) => {
+  const handleSaveCommissionRate = async (e: React.FormEvent) => {
     e.preventDefault();
     const safeRate = Math.max(0, Number(tempRate) || 0);
     saveAdminCommissionRate(safeRate);
     setCommissionRate(safeRate);
     setShowCommissionModal(false);
 
-    const subs = getAdminSubscriptions();
-    const updated = deriveSalesFromSubscriptions(subs, safeRate);
+    // Apply safeRate to all subscription sales
+    const updated = sales.map(s => {
+      if (s.source === 'Subscription') {
+        let days = s.durationDays;
+        if (!days) {
+          const match = (s.description || '').match(/\d+/);
+          days = match ? parseInt(match[0], 10) : 30;
+        }
+        if (days <= 0) days = 30;
+        const comm = Math.min(s.totalAmount, days * safeRate);
+        const vendor = Math.max(0, s.totalAmount - comm);
+        return {
+          ...s,
+          dailyCommissionRate: safeRate,
+          durationDays: days,
+          commissionAmount: comm,
+          vendorPayout: vendor
+        };
+      }
+      return s;
+    });
+
     setSales(updated);
     setMetrics(calculateMetricsFromSales(updated, safeRate));
     saveAdminSales(updated);
 
     toast.success(`Platform commission updated to ₹${safeRate}/day per plan!`);
+
+    // Sync updated commission rate to backend sales in background
+    try {
+      for (const s of updated) {
+        if (s.source === 'Subscription' && (s._id || s.saleId)) {
+          await updateSaleRecord(s._id || s.saleId, {
+            dailyCommissionRate: safeRate,
+            commissionAmount: s.commissionAmount,
+            vendorPayout: s.vendorPayout
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Backend sales commission sync notice:', e);
+    }
   };
 
   useEffect(() => {
@@ -358,13 +458,7 @@ export function AdminSales() {
     const handleUpdate = () => {
       const activeRate = getAdminCommissionRate();
       setCommissionRate(activeRate);
-      const subs = getAdminSubscriptions();
-      const derived = deriveSalesFromSubscriptions(subs, activeRate);
-      const saved = getAdminSales();
-      const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
-      const active = validSaved.length > 0 ? validSaved : derived;
-      setSales(active);
-      setMetrics(calculateMetricsFromSales(active, activeRate));
+      loadSalesData();
     };
 
     window.addEventListener('shift24-subscriptions-updated', handleUpdate);

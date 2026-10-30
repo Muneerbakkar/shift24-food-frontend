@@ -103,11 +103,11 @@ export interface AdminSubscription {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
-  planId: 'weight-loss' | 'balance' | 'weight-gain';
+  planId: string;
   planTitle: string;
   duration: string;
   durationDays: number;
-  mealsPerDay: '1' | '2' | '3';
+  mealsPerDay: '1' | '2' | '3' | string;
   slot: string;
   slotLabel: string;
   totalPrice: number;
@@ -199,7 +199,21 @@ export interface IDurationOption {
   discount: number;
   popular: boolean;
   badge?: string;
+  price?: number;
   customPrice?: number;
+  prices?: {
+    '1'?: number;
+    '2'?: number;
+    '3'?: number;
+  };
+  slotPrices?: {
+    breakfast?: number;
+    lunch?: number;
+    dinner?: number;
+    'breakfast-lunch'?: number;
+    'lunch-dinner'?: number;
+    'breakfast-dinner'?: number;
+  };
   features?: string[];
 }
 
@@ -232,41 +246,37 @@ export const DEFAULT_DURATION_OPTIONS: IDurationOption[] = [
     id: '1-day',
     title: '1-Day Trial',
     days: 1,
-    description: 'Taste-test our chef-prepared meals for a day.',
+    description: 'Taste-test our chef-prepared healthy meals for a day.',
     discount: 0,
     popular: false,
     badge: '',
-    features: ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']
+    price: 400,
+    customPrice: 400,
+    features: ['{meal_count} Meals daily', 'Free daily delivery', '100% clean healthy food']
   },
   {
     id: '7-day',
     title: '7 Day Plan',
     days: 7,
-    description: 'Perfect for trying us out.',
+    description: 'Perfect for building healthy eating habits over a week.',
     discount: 0,
     popular: false,
     badge: '',
-    features: ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']
-  },
-  {
-    id: '15-day',
-    title: '15 Day Plan',
-    days: 15,
-    description: 'Build healthy habits over two weeks.',
-    discount: 5,
-    popular: true,
-    badge: 'MOST POPULAR',
-    features: ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']
+    price: 2800,
+    customPrice: 2800,
+    features: ['{meal_count} Meals daily', 'Free daily delivery', 'Fresh rotating daily menu', 'Pause or skip anytime']
   },
   {
     id: '30-day',
     title: '30 Day Plan',
     days: 30,
-    description: 'Commit to your goals and save more.',
+    description: 'Commit to healthy eating all month long and save more.',
     discount: 10,
-    popular: false,
-    badge: '',
-    features: ['{meal_count} Meals daily', 'Free daily delivery', '{plan_title} macros']
+    popular: true,
+    badge: 'MOST POPULAR',
+    price: 10800,
+    customPrice: 10800,
+    features: ['{meal_count} Meals daily', 'Free daily delivery', 'Maximum monthly savings', 'Pause or skip anytime']
   }
 ];
 
@@ -284,33 +294,19 @@ const INITIAL_CUSTOMERS: AdminCustomer[] = [];
 
 const INITIAL_PLANS: AdminPlanConfig[] = [
   {
-    id: 'weight-loss',
-    title: 'Weight Loss',
+    id: 'healthy-food',
+    title: 'Healthy Food',
     subtitle: 'Customize your daily meal routine and subscription duration. The longer you commit, the more you save.',
-    description: 'Calorie-controlled, nutrient-dense meals designed to help you shed pounds safely.',
-    pricePerWeek: 3000,
-    calories: '1200 - 1500 kcal/day',
-    benefits: ['High protein', 'Low carb', 'Metabolism boosting'],
+    description: 'Fresh chef-prepared healthy meals crafted daily with clean, nutrient-dense ingredients.',
+    pricePerWeek: 2800,
+    calories: '1500 - 2000 kcal/day',
+    benefits: ['100% clean ingredients', 'Chef-prepared fresh daily', 'Balanced nutrition & macros', 'Free doorstep delivery'],
     durationOptions: DEFAULT_DURATION_OPTIONS,
     mealOptions: DEFAULT_MEAL_OPTIONS,
     active: true,
-    popular: false,
+    popular: true,
+    badge: 'MOST POPULAR',
     order: 1,
-    dailyCommission: 100,
-  },
-  {
-    id: 'weight-gain',
-    title: 'Weight Gain',
-    subtitle: 'Customize your daily meal routine and subscription duration. The longer you commit, the more you save.',
-    description: 'Calorie-surplus, high-protein meals for muscle building and healthy weight gain.',
-    pricePerWeek: 3500,
-    calories: '2500 - 3000 kcal/day',
-    benefits: ['High protein', 'Complex carbs', 'Muscle recovery'],
-    durationOptions: DEFAULT_DURATION_OPTIONS,
-    mealOptions: DEFAULT_MEAL_OPTIONS,
-    active: true,
-    popular: false,
-    order: 2,
     dailyCommission: 100,
   },
   {
@@ -324,9 +320,8 @@ const INITIAL_PLANS: AdminPlanConfig[] = [
     durationOptions: DEFAULT_DURATION_OPTIONS,
     mealOptions: DEFAULT_MEAL_OPTIONS,
     active: true,
-    popular: true,
-    badge: 'MOST POPULAR',
-    order: 3,
+    popular: false,
+    order: 2,
     dailyCommission: 100,
   }
 ];
@@ -347,18 +342,13 @@ export function getAdminSubscriptions(): AdminSubscription[] {
         if (activeSubRaw) {
           const activeSub = JSON.parse(activeSubRaw);
           for (const s of filtered) {
-            if (s.id === activeSub.id || s.id === activeSub.subId || (activeSub.customerEmail && s.customerEmail === activeSub.customerEmail) || filtered.length === 1) {
+            if (s.id === activeSub.id || s.id === activeSub.subId) {
               if (activeSub.skippedDates && Array.isArray(activeSub.skippedDates)) {
                 if (!s.skippedDates || s.skippedDates.length === 0) {
                   s.skippedDates = activeSub.skippedDates;
                 }
               }
-              if (activeSub.status) {
-                s.status = activeSub.status;
-                s.pauseStartDate = activeSub.pauseStartDate || null;
-                s.pauseEndDate = activeSub.pauseEndDate || null;
-                if (activeSub.nextDelivery) s.nextDelivery = activeSub.nextDelivery;
-              }
+
             }
           }
         }
@@ -1072,7 +1062,17 @@ export function getAdminSales(): any[] {
     const raw = localStorage.getItem('shift24_admin_sales');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const subs = getAdminSubscriptions();
+        const validSubIds = new Set(subs.map(s => s.id || (s as any).subId));
+        return parsed.filter(s => {
+          if (isDummyCustomer(s)) return false;
+          if (s.source === 'Subscription' && validSubIds.size > 0) {
+            return validSubIds.has(s.linkedId) || validSubIds.has((s.saleId || '').replace(/^INV-/, 'SUB-'));
+          }
+          return true;
+        });
+      }
     }
   } catch (e) {
     console.error(e);
@@ -1173,6 +1173,7 @@ export function saveAdminCustomers(customers: AdminCustomer[]) {
 export const getPlanSortRank = (p: any): number => {
   const id = String(p?.id || p?.planId || '').toLowerCase();
   const title = String(p?.title || '').toLowerCase();
+  if (id.includes('healthy') || title.includes('healthy')) return 0;
   if (id.includes('loss') || title.includes('loss')) return 1;
   if (id.includes('gain') || title.includes('gain')) return 2;
   if (id.includes('balance') || title.includes('balance') || id.includes('maintain') || title.includes('maintain') || id.includes('scale')) return 3;
@@ -1207,6 +1208,17 @@ export function getAdminPlans(): AdminPlanConfig[] {
           if (!p.mealOptions || !Array.isArray(p.mealOptions) || p.mealOptions.length === 0) {
             p.mealOptions = DEFAULT_MEAL_OPTIONS;
             updated = true;
+          } else {
+            p.mealOptions = p.mealOptions.map((m: any) => ({
+              ...m,
+              multiplier: (typeof m?.multiplier === 'number' && m.multiplier > 0)
+                ? (m.id === '1' && m.multiplier >= 0.9 ? 0.40 : m.id === '2' && (m.multiplier >= 0.95 || m.multiplier < 0.3) ? 0.72 : m.multiplier)
+                : (m?.id === '1' ? 0.40 : m?.id === '2' ? 0.72 : 1.00)
+            }));
+          }
+          if (p.active === undefined) {
+            p.active = true;
+            updated = true;
           }
           if (p.dailyCommission === undefined) {
             p.dailyCommission = 100;
@@ -1215,15 +1227,8 @@ export function getAdminPlans(): AdminPlanConfig[] {
           return p as AdminPlanConfig;
         });
 
-        const hasExplicitPopular = hydrated.some(p => p.popular === true);
-
-        hydrated.forEach((p, idx) => {
+        hydrated.forEach((p) => {
           p.order = getPlanSortRank(p);
-          if (!hasExplicitPopular && (p.id?.includes('balance') || (p as any).planId?.includes('balance'))) {
-            p.popular = true;
-            p.badge = p.badge || 'MOST POPULAR';
-            updated = true;
-          }
         });
 
         hydrated.sort((a, b) => getPlanSortRank(a) - getPlanSortRank(b));

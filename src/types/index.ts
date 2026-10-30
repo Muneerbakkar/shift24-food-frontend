@@ -1,4 +1,4 @@
-export type PlanType = 'weight-loss' | 'weight-gain' | 'balance';
+export type PlanType = 'weight-loss' | 'weight-gain' | 'balance' | string;
 
 export interface MealPlan {
   id: PlanType;

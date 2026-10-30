@@ -1,12 +1,22 @@
-import { Zap, Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, Home, Info, Utensils, Calendar, Phone } from 'lucide-react';
+import { Zap, Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { getUserNotifications, getResolvedUserEmail } from '../../services/notificationService';
+import { 
+  isPushSupported, 
+  getNotificationPermission, 
+  subscribeToPushNotifications,
+  sendTestPushToPhone 
+} from '../../services/pushNotificationService';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isPushEnabled, setIsPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
   const location = useLocation();
 
   const isActive = (path: string) => location.pathname === path;
@@ -21,6 +31,99 @@ export function Navbar() {
     window.addEventListener('auth-change', checkAuth);
     return () => window.removeEventListener('auth-change', checkAuth);
   }, []);
+
+  // Push notification sync & auto-enable
+  useEffect(() => {
+    if (!isPushSupported()) return;
+
+    const syncPush = () => {
+      const perm = getNotificationPermission();
+      const enabled = perm === 'granted';
+      setIsPushEnabled(enabled);
+
+      // Auto-enable in background if browser permission is already granted
+      if (enabled) {
+        const email = localStorage.getItem('userEmail') || '';
+        const name = localStorage.getItem('userName') || 'Customer';
+        subscribeToPushNotifications('customer', email, name).catch(() => {});
+      }
+    };
+
+    syncPush();
+    window.addEventListener('shift24-push-status-changed', syncPush);
+    return () => window.removeEventListener('shift24-push-status-changed', syncPush);
+  }, [isLoggedIn]);
+
+  const handleEnablePush = async () => {
+    if (isPushEnabled) {
+      setPushLoading(true);
+      try {
+        const email = getResolvedUserEmail();
+        const res = await sendTestPushToPhone('customer', email);
+        if (res.success) {
+          toast.success('Test notification sent to your device!');
+        } else {
+          toast.success('Notifications are active on this device.');
+        }
+      } catch {
+        toast.success('Notifications are active on this device.');
+      } finally {
+        setPushLoading(false);
+      }
+      return;
+    }
+
+    setPushLoading(true);
+    try {
+      if (!isPushSupported()) {
+        toast.error('Push notifications are not supported on this browser. On iOS, open Safari and tap Share -> Add to Home Screen.');
+        setPushLoading(false);
+        return;
+      }
+
+      const email = getResolvedUserEmail();
+      const name = localStorage.getItem('userName') || 'Customer';
+      const res = await subscribeToPushNotifications('customer', email, name);
+      if (res.success) {
+        setIsPushEnabled(true);
+        toast.success('Push notifications enabled successfully!');
+      } else {
+        toast.error(res.message || 'Could not enable notifications. Check browser permissions.');
+      }
+    } catch {
+      toast.error('Failed to enable push notifications');
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const updateUnread = async () => {
+      try {
+        const notifs = await getUserNotifications();
+        if (isMounted) {
+          setUnreadCount(notifs.filter(n => n.unread).length);
+        }
+      } catch {
+        if (isMounted) setUnreadCount(0);
+      }
+    };
+
+    updateUnread();
+    window.addEventListener('shift24-notifications-updated', updateUnread);
+    window.addEventListener('shift24-subscriptions-updated', updateUnread);
+    window.addEventListener('storage', updateUnread);
+    window.addEventListener('auth-change', updateUnread);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('shift24-notifications-updated', updateUnread);
+      window.removeEventListener('shift24-subscriptions-updated', updateUnread);
+      window.removeEventListener('storage', updateUnread);
+      window.removeEventListener('auth-change', updateUnread);
+    };
+  }, [isLoggedIn]);
 
   return (
     <nav className="sticky top-0 z-50 bg-white border-b border-slate-100 transition-all">
@@ -41,10 +144,33 @@ export function Navbar() {
             <Link to="/contact" className={`transition-colors ${isActive('/contact') ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-emerald-600'}`}>Contact</Link>
           </div>
 
-          <div className="hidden md:flex gap-6 items-center z-10">
-            <Link to="/notifications" className="text-slate-500 hover:text-emerald-600 transition-colors relative">
+          <div className="hidden md:flex gap-5 items-center z-10">
+            <button
+              onClick={handleEnablePush}
+              disabled={pushLoading}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                isPushEnabled
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+              }`}
+              title={isPushEnabled ? 'Notifications are active! Click to send a test alert.' : 'Enable mobile push notifications for live order updates'}
+            >
+              {isPushEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+              <BellRing className={`w-3.5 h-3.5 text-emerald-600 ${pushLoading ? 'animate-spin' : isPushEnabled ? '' : 'animate-pulse'}`} />
+              <span>
+                {pushLoading 
+                  ? 'Enabling...' 
+                  : isPushEnabled 
+                    ? 'Notifications Active' 
+                    : 'Enable Notifications'}
+              </span>
+            </button>
+
+            <Link to="/notifications" className="text-slate-500 hover:text-emerald-600 transition-colors relative" aria-label="Notifications">
               <Bell className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white"></span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse"></span>
+              )}
             </Link>
             {/* Cart icon - hidden for now as instant delivery is paused */}
             <Link to="/cart" onClick={(e) => { e.preventDefault(); toast('Single item purchases coming soon!'); }} className="hidden text-slate-500 hover:text-emerald-600 transition-colors relative">
@@ -63,19 +189,32 @@ export function Navbar() {
             )}
           </div>
 
-          <div className="md:hidden flex items-center gap-5 z-10">
-             <Link to="/notifications" onClick={() => setIsOpen(false)} className="text-slate-500 relative">
-               <Bell className="w-5 h-5" />
-               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white"></span>
-             </Link>
-             {/* Cart icon - hidden for now as instant delivery is paused */}
-             <Link to="/cart" onClick={(e) => { e.preventDefault(); setIsOpen(false); toast('Single item purchases coming soon!'); }} className="hidden text-slate-500 relative">
-               <ShoppingCart className="w-5 h-5" />
-               <span className="absolute -top-2 -right-2 bg-emerald-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white">3</span>
-             </Link>
-             <button onClick={() => setIsOpen(true)} className="text-slate-600 ml-1">
-                <MenuIcon className="w-6 h-6" />
-             </button>
+          <div className="md:hidden flex items-center gap-2.5 z-10">
+            <button
+              onClick={handleEnablePush}
+              disabled={pushLoading}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer shadow-2xs ${
+                isPushEnabled
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+              }`}
+              title={isPushEnabled ? 'Notifications are active' : 'Enable notifications'}
+            >
+              {isPushEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+              <BellRing className={`w-3 h-3 text-emerald-600 ${pushLoading ? 'animate-spin' : isPushEnabled ? '' : 'animate-pulse'}`} />
+              <span>{pushLoading ? '...' : isPushEnabled ? 'Alerts Active' : 'Enable Alerts'}</span>
+            </button>
+
+            <Link to="/notifications" onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-emerald-600 transition-colors relative p-1" aria-label="Notifications">
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse"></span>
+              )}
+            </Link>
+            
+            <button onClick={() => setIsOpen(true)} className="text-slate-600 p-1">
+               <MenuIcon className="w-6 h-6" />
+            </button>
           </div>
         </div>
       </div>
@@ -121,6 +260,27 @@ export function Navbar() {
           </Link>
           
           <div className="mt-auto pt-6 border-t border-slate-100">
+            <button
+              onClick={() => {
+                handleEnablePush();
+                setIsOpen(false);
+              }}
+              disabled={pushLoading}
+              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold border mb-4 cursor-pointer transition-colors ${
+                isPushEnabled 
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                {isPushEnabled && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                <BellRing className={`w-4 h-4 text-emerald-600 ${isPushEnabled ? '' : 'animate-pulse'}`} />
+                <span>{isPushEnabled ? 'Mobile Alerts Active' : 'Enable Mobile Alerts'}</span>
+              </span>
+              <span className="text-[11px] bg-emerald-600 text-white px-2.5 py-1 rounded-full font-bold">
+                {pushLoading ? '...' : isPushEnabled ? 'Test Alert' : 'Turn On'}
+              </span>
+            </button>
             {isLoggedIn ? (
               <Link to="/profile" onClick={() => setIsOpen(false)} className={`text-base font-medium flex items-center gap-3 ${isActive('/profile') ? 'text-emerald-600 font-bold' : 'text-emerald-600'}`}>
                 <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">

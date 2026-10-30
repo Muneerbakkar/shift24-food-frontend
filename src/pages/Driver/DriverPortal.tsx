@@ -1,3 +1,4 @@
+import { PwaNotificationCard } from '../../components/pwa/PwaNotificationCard';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -838,6 +839,14 @@ export function DriverPortal() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+        {/* PWA Phone Notifications for Driver */}
+        <PwaNotificationCard 
+          role="driver" 
+          userEmail={driver.phone || driver.driverId} 
+          userName={driver.name} 
+        />
+
         
         {/* KPI Workload & Road Mileage Banner */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

@@ -16,12 +16,15 @@ import {
   Mail,
   Edit2,
   RefreshCw,
-  Loader2
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import { 
   getAdminSubscriptions, 
   saveAdminSubscriptions, 
-  AdminSubscription 
+  AdminSubscription,
+  getAdminOrders,
+  saveAdminOrders
 } from './adminData';
 import { 
   fetchSubscriptions, 
@@ -29,6 +32,7 @@ import {
   updateBackendSubscriptionSlot 
 } from '../../services/api';
 import toast from 'react-hot-toast';
+import { showConfirmToast } from '../../utils/confirmToast';
 
 const formatDateStr = (dateStr: string) => {
   if (!dateStr) return '';
@@ -57,6 +61,22 @@ export function AdminSubscriptions() {
   const [selectedSub, setSelectedSub] = useState<AdminSubscription | null>(null);
   const [isEditingSlot, setIsEditingSlot] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  const planOptions = React.useMemo(() => {
+    const defaultOptions = [
+      { id: 'weight-loss', title: 'Weight Loss' },
+      { id: 'balance', title: 'Balance Weight' },
+      { id: 'weight-gain', title: 'Weight Gain' }
+    ];
+    const map = new Map<string, string>();
+    defaultOptions.forEach(opt => map.set(opt.id, opt.title));
+    subscriptions.forEach(sub => {
+      if (sub.planId && !map.has(sub.planId)) {
+        map.set(sub.planId, sub.planTitle || sub.planId);
+      }
+    });
+    return Array.from(map.entries()).map(([id, title]) => ({ id, title }));
+  }, [subscriptions]);
 
   const loadSubscriptions = async () => {
     // 1. Load sanitized local subscriptions first
@@ -164,6 +184,16 @@ export function AdminSubscriptions() {
 
     setSubscriptions(updated);
     saveAdminSubscriptions(updated);
+    try {
+      const activeRaw = localStorage.getItem('activeSubscription');
+      if (activeRaw) {
+        const activeParsed = JSON.parse(activeRaw);
+        if (activeParsed.id === subId || activeParsed.subId === subId) {
+          activeParsed.status = nextStatus;
+          localStorage.setItem('activeSubscription', JSON.stringify(activeParsed));
+        }
+      }
+    } catch {}
 
     if (nextStatus === 'Paused') {
       try {
@@ -193,29 +223,97 @@ export function AdminSubscriptions() {
     }
   };
 
-  const handleCancelSub = async (subId: string) => {
-    if (!window.confirm('Are you sure you want to cancel this subscription?')) return;
-    const updated = subscriptions.map(sub => {
-      if (sub.id === subId) {
-        return { ...sub, status: 'Cancelled' as const, nextDelivery: 'Cancelled' };
+  const handleReactivateSub = (subId: string) => {
+    showConfirmToast({
+      title: 'Reactivate this subscription?',
+      description: 'Scheduled daily meal preparation and deliveries will resume starting tomorrow morning.',
+      confirmText: 'Reactivate',
+      cancelText: 'Keep Cancelled',
+      confirmButtonClass: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+      iconBgClass: 'bg-emerald-50 text-emerald-600 border border-emerald-100',
+      onConfirm: async () => {
+        const updated = subscriptions.map(sub => {
+          if (sub.id === subId) {
+            return {
+              ...sub,
+              status: 'Active' as const,
+              nextDelivery: 'Tomorrow, 07:30 AM (Breakfast)',
+              pauseStartDate: null,
+              pauseEndDate: null
+            };
+          }
+          return sub;
+        });
+
+        setSubscriptions(updated);
+        saveAdminSubscriptions(updated);
+        try {
+          const activeRaw = localStorage.getItem('activeSubscription');
+          if (activeRaw) {
+            const activeParsed = JSON.parse(activeRaw);
+            if (activeParsed.id === subId || activeParsed.subId === subId) {
+              activeParsed.status = 'Active';
+              localStorage.setItem('activeSubscription', JSON.stringify(activeParsed));
+            }
+          }
+        } catch {}
+        window.dispatchEvent(new Event('shift24-customers-updated'));
+        window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+        toast.success('Subscription reactivated to Active!');
+        if (selectedSub && selectedSub.id === subId) {
+          setSelectedSub(updated.find(s => s.id === subId) || null);
+        }
+
+        try {
+          await updateBackendSubscriptionStatus(subId, 'Active');
+        } catch (e) {
+          console.warn('Backend status update error:', e);
+        }
       }
-      return sub;
     });
+  };
 
-    setSubscriptions(updated);
-    saveAdminSubscriptions(updated);
-    window.dispatchEvent(new Event('shift24-customers-updated'));
-    window.dispatchEvent(new Event('shift24-subscriptions-updated'));
-    toast.error('Subscription marked as Cancelled');
-    if (selectedSub && selectedSub.id === subId) {
-      setSelectedSub(updated.find(s => s.id === subId) || null);
-    }
+  const handleCancelSub = (subId: string) => {
+    showConfirmToast({
+      title: 'Cancel this subscription?',
+      description: 'Are you sure you want to cancel this subscription? Scheduled meal preparation will be stopped.',
+      confirmText: 'Cancel Subscription',
+      cancelText: 'Keep Active',
+      confirmButtonClass: 'bg-red-600 hover:bg-red-700 text-white',
+      onConfirm: async () => {
+        const updated = subscriptions.map(sub => {
+          if (sub.id === subId) {
+            return { ...sub, status: 'Cancelled' as const, nextDelivery: 'Cancelled' };
+          }
+          return sub;
+        });
 
-    try {
-      await updateBackendSubscriptionStatus(subId, 'Cancelled');
-    } catch (e) {
-      console.warn('Backend cancel update error:', e);
-    }
+        setSubscriptions(updated);
+        saveAdminSubscriptions(updated);
+        try {
+          const activeRaw = localStorage.getItem('activeSubscription');
+          if (activeRaw) {
+            const activeParsed = JSON.parse(activeRaw);
+            if (activeParsed.id === subId || activeParsed.subId === subId) {
+              activeParsed.status = 'Cancelled';
+              localStorage.setItem('activeSubscription', JSON.stringify(activeParsed));
+            }
+          }
+        } catch {}
+        window.dispatchEvent(new Event('shift24-customers-updated'));
+        window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+        toast.error('Subscription marked as Cancelled');
+        if (selectedSub && selectedSub.id === subId) {
+          setSelectedSub(updated.find(s => s.id === subId) || null);
+        }
+
+        try {
+          await updateBackendSubscriptionStatus(subId, 'Cancelled');
+        } catch (e) {
+          console.warn('Backend cancel update error:', e);
+        }
+      }
+    });
   };
 
   const handleChangeSlot = async (newSlot: string, newLabel: string) => {
@@ -305,9 +403,11 @@ export function AdminSubscriptions() {
             className="text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-semibold text-slate-700"
           >
             <option value="all">All Plans</option>
-            <option value="weight-loss">Weight Loss</option>
-            <option value="balance">Balance Weight</option>
-            <option value="weight-gain">Weight Gain</option>
+            {planOptions.map(p => (
+              <option key={p.id} value={p.id}>{p.title}</option>
+            ))}
+
+
           </select>
 
           <select
@@ -409,6 +509,17 @@ export function AdminSubscriptions() {
                       >
                         <Eye className="w-4 h-4" />
                       </button>
+
+                      {sub.status === 'Cancelled' && (
+                        <button
+                          type="button"
+                          onClick={() => handleReactivateSub(sub.id)}
+                          title="Reactivate Subscription"
+                          className="p-1.5 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 transition-colors"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      )}
 
                       {sub.status !== 'Cancelled' && sub.status !== 'Completed' && (
                         <button
@@ -637,6 +748,16 @@ export function AdminSubscriptions() {
             </div>
 
             <div className="mt-6 pt-4 border-t border-slate-200 flex justify-end gap-2">
+              {selectedSub.status === 'Cancelled' && (
+                <button
+                  type="button"
+                  onClick={() => handleReactivateSub(selectedSub.id)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition-colors flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reactivate Subscription</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSelectedSub(null)}
