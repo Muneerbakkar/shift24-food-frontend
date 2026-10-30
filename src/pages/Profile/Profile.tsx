@@ -1716,6 +1716,13 @@ export function ProfilePage() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('userName');
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('isAdminLoggedIn');
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminUser');
+    localStorage.removeItem('isDriverLoggedIn');
+    localStorage.removeItem('driverToken');
+    localStorage.removeItem('driverUser');
     window.dispatchEvent(new Event('auth-change'));
     navigate('/');
   };

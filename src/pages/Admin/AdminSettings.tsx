@@ -1,4 +1,3 @@
-import { PwaNotificationCard } from '../../components/pwa/PwaNotificationCard';
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Settings, 

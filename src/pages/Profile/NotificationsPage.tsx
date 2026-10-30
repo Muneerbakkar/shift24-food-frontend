@@ -8,12 +8,12 @@ import {
   Calendar, 
   AlertCircle, 
   ArrowRight,
-  ExternalLink,
   Trash2,
   AlertTriangle,
   X,
   RefreshCw,
-  ShieldCheck
+  ShieldCheck,
+  Lock
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -42,7 +42,6 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'dispatch' | 'kitchen' | 'orders'>('all');
   const [confirmModal, setConfirmModal] = useState<ConfirmDeleteModalState>({
     isOpen: false,
     type: 'single',
@@ -56,6 +55,11 @@ export function NotificationsPage() {
     localStorage.getItem('isDriverLoggedIn') === 'true';
 
   const loadNotifications = async () => {
+    if (!isLoggedIn) {
+      setNotifications([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const data = await getUserNotifications({ role: ctx.role });
@@ -71,6 +75,10 @@ export function NotificationsPage() {
   };
 
   useEffect(() => {
+    if (!isLoggedIn) {
+      navigate('/login', { replace: true });
+      return;
+    }
     loadNotifications();
 
     const handleUpdate = () => {
@@ -106,9 +114,6 @@ export function NotificationsPage() {
     if (notification.unread) {
       await markNotificationAsRead(notification.id);
       setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, unread: false } : n));
-    }
-    if (notification.link) {
-      navigate(notification.link);
     }
   };
 
@@ -197,14 +202,7 @@ export function NotificationsPage() {
     }
   };
 
-  // Filter notifications
-  const filteredNotifications = notifications.filter(n => {
-    if (activeFilter === 'all') return true;
-    if (activeFilter === 'dispatch') return n.type === 'dispatch' || n.type === 'delivery' || n.status === 'Out for Delivery';
-    if (activeFilter === 'kitchen') return n.type === 'kitchen' || n.status === 'Preparing';
-    if (activeFilter === 'orders') return n.type === 'order' || n.status === 'Pending' || n.status === 'Delivered';
-    return true;
-  });
+  const filteredNotifications = notifications;
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -263,6 +261,10 @@ export function NotificationsPage() {
 
   const isAllSelected = filteredNotifications.length > 0 && selectedIds.size === filteredNotifications.length;
 
+  if (!isLoggedIn) {
+    return null;
+  }
+
   return (
     <div className="pt-8 md:pt-16 lg:pt-20 pb-16 lg:pb-24 bg-slate-50 min-h-screen">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -279,7 +281,7 @@ export function NotificationsPage() {
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
                 Notifications
               </h1>
-              {ctx.role !== 'customer' && (
+              {ctx.role !== 'customer' && isLoggedIn && (
                 <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-slate-900 text-white">
                   {ctx.role === 'admin' ? 'Admin Operations' : 'Driver Portal'}
                 </span>
@@ -287,92 +289,52 @@ export function NotificationsPage() {
             </div>
           </div>
           
-          <div className="flex items-center gap-3 self-start sm:self-auto">
-            <button
-              onClick={loadNotifications}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-full transition shadow-2xs cursor-pointer"
-              title="Refresh notifications"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-500' : ''}`} />
-              <span>Refresh</span>
-            </button>
-
-            {notifications.some(n => n.unread) && (
-              <button 
-                onClick={handleMarkAllAsRead}
-                className="text-xs sm:text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:underline transition-all cursor-pointer"
+          {isLoggedIn && (
+            <div className="flex items-center gap-3 self-start sm:self-auto">
+              <button
+                onClick={loadNotifications}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-full transition shadow-2xs cursor-pointer"
+                title="Refresh notifications"
               >
-                Mark all as read
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-emerald-500' : ''}`} />
+                <span>Refresh</span>
               </button>
-            )}
-          </div>
+
+              {notifications.some(n => n.unread) && (
+                <button 
+                  onClick={handleMarkAllAsRead}
+                  className="text-xs sm:text-sm font-semibold text-emerald-600 hover:text-emerald-700 hover:underline transition-all cursor-pointer"
+                >
+                  Mark all as read
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Category Tabs for filtering */}
-        {notifications.length > 0 && (
-          <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-none">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFilter === 'all' 
-                  ? 'bg-slate-900 text-white shadow-xs' 
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-              }`}
-            >
-              All ({notifications.length})
-            </button>
-            <button
-              onClick={() => setActiveFilter('dispatch')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFilter === 'dispatch' 
-                  ? 'bg-slate-900 text-white shadow-xs' 
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-              }`}
-            >
-              🚚 Dispatch & Transit
-            </button>
-            <button
-              onClick={() => setActiveFilter('kitchen')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFilter === 'kitchen' 
-                  ? 'bg-slate-900 text-white shadow-xs' 
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-              }`}
-            >
-              🍳 Kitchen Cooking
-            </button>
-            <button
-              onClick={() => setActiveFilter('orders')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeFilter === 'orders' 
-                  ? 'bg-slate-900 text-white shadow-xs' 
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-              }`}
-            >
-              📦 Subscriptions & Orders
-            </button>
-          </div>
-        )}
-
-        {/* Not Logged In Banner */}
-        {!isLoggedIn && (
-          <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-amber-50/80 border border-amber-200/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <p className="font-bold text-amber-900 text-sm">Viewing notifications as a guest</p>
-              <p className="text-xs text-amber-700 mt-0.5">Log in to track your personalized meal subscription deliveries in Kakkanad.</p>
+        {!isLoggedIn ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-slate-200/80 shadow-xs max-w-lg mx-auto my-6">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-100 shadow-2xs">
+              <Lock className="w-7 h-7" />
             </div>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 mb-2">
+              Sign in to view your notifications
+            </h2>
+            <p className="text-slate-500 text-sm max-w-sm mx-auto mb-6 leading-relaxed">
+              Notifications contain your personalized meal schedules, chef cooking updates, and delivery tracking in Kakkanad. Please sign in to access your updates.
+            </p>
             <Link 
               to="/login"
-              className="inline-flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-2 rounded-full transition-colors shrink-0 shadow-xs"
+              className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-3 rounded-xl transition shadow-md shadow-emerald-600/20 cursor-pointer"
             >
-              <span>Log In</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              <span>Log In to Shift24</span>
+              <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
-        )}
-
-        {/* Toolbar: Select All & Bulk Actions */}
+        ) : (
+          <>
+            {/* Toolbar: Select All & Bulk Actions */}
         {filteredNotifications.length > 0 && (
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -537,24 +499,13 @@ export function NotificationsPage() {
                         {notification.message}
                       </p>
 
-                      {/* Action Links & Indicators */}
-                      <div className="flex items-center justify-between gap-3 mt-1">
-                        {notification.link ? (
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 group-hover:text-emerald-700">
-                            <span>Open Link</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </div>
-                        ) : (
-                          <div></div>
-                        )}
-
-                        {notification.unread && (
-                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-600">
-                            <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
-                            <span>Unread</span>
-                          </div>
-                        )}
-                      </div>
+                      {/* Unread Indicator */}
+                      {notification.unread && (
+                        <div className="flex items-center justify-end gap-1.5 mt-1 text-[11px] font-semibold text-emerald-600">
+                          <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                          <span>Unread</span>
+                        </div>
+                      )}
                     </div>
 
                   </div>
@@ -563,6 +514,8 @@ export function NotificationsPage() {
             })
           )}
         </div>
+        </>
+        )}
 
       </div>
 

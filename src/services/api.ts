@@ -252,6 +252,16 @@ export async function updateBackendSubscriptionDetails(id: string, data: Record<
 }
 
 
+export async function deleteBackendSubscription(id: string) {
+  const res = await fetch(`${API_BASE}/subscriptions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: getAuthHeaders()
+  });
+  return res.json();
+}
+
+
 // -------------------------------------------------------------
 // Orders & Dispatch
 // -------------------------------------------------------------

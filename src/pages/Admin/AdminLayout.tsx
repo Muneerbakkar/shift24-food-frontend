@@ -1,4 +1,3 @@
-import { NotificationBellDropdown } from '../../components/notifications/NotificationBellDropdown';
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -104,6 +103,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     localStorage.removeItem('isAdminLoggedIn');
     localStorage.removeItem('adminToken');
     localStorage.removeItem('adminUser');
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.dispatchEvent(new Event('auth-change'));
     toast.success('Admin logged out successfully');
     navigate('/admin/login');
   };
@@ -273,9 +276,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>{adminUser?.role === 'admin' ? 'Administrator' : 'Super Admin'}</span>
             </div>
-
-            {/* Admin Operations Notification Bell */}
-            <NotificationBellDropdown role="admin" theme="light" />
 
             {/* Admin Avatar Link to Profile */}
             <Link 

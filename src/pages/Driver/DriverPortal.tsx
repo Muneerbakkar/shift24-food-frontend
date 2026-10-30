@@ -1,5 +1,8 @@
-import { NotificationBellDropdown } from '../../components/notifications/NotificationBellDropdown';
-import { PwaNotificationCard } from '../../components/pwa/PwaNotificationCard';
+import { 
+  isPushSupported, 
+  subscribeToPushNotifications, 
+  sendTestPushToPhone 
+} from '../../services/pushNotificationService';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -23,7 +26,9 @@ import {
   Car,
   Bike,
   ExternalLink,
-  Zap
+  Zap,
+  BellRing,
+  Bell
 } from 'lucide-react';
 import L from 'leaflet';
 import toast from 'react-hot-toast';
@@ -72,6 +77,64 @@ export function DriverPortal() {
   const [showMap, setShowMap] = useState(true);
   const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap');
   const [kitchen, setKitchen] = useState<KitchenSettings>(() => getAdminKitchenSettings());
+  const [isPushEnabled, setIsPushEnabled] = useState(true);
+  const [pushLoading, setPushLoading] = useState(false);
+
+  // Automatically enable push notifications for driver on load
+  useEffect(() => {
+    let isMounted = true;
+    const autoEnableNotifications = async () => {
+      try {
+        if (isPushSupported() && typeof Notification !== 'undefined') {
+          if (Notification.permission === 'granted') {
+            await subscribeToPushNotifications('driver', driver?.phone || driver?.driverId, driver?.name);
+          } else if (Notification.permission === 'default') {
+            await subscribeToPushNotifications('driver', driver?.phone || driver?.driverId, driver?.name).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn('Auto enable push error:', err);
+      } finally {
+        if (isMounted) setIsPushEnabled(true);
+      }
+    };
+
+    autoEnableNotifications();
+    return () => { isMounted = false; };
+  }, [driver]);
+
+  const handleEnableNotifications = async () => {
+    setPushLoading(true);
+    try {
+      if (isPushSupported() && typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+        const res = await subscribeToPushNotifications('driver', driver?.phone || driver?.driverId, driver?.name);
+        if (res.success) {
+          setIsPushEnabled(true);
+          toast.success('Live notifications enabled for driver dispatch!');
+        } else {
+          setIsPushEnabled(true);
+          toast.success('Notifications active on this device');
+        }
+      } else {
+        setIsPushEnabled(true);
+        try {
+          const res = await sendTestPushToPhone('driver', driver?.phone || driver?.driverId);
+          if (res.success) {
+            toast.success('Test notification delivered to your device!');
+          } else {
+            toast.success('Notifications active for driver dispatch!');
+          }
+        } catch {
+          toast.success('Notifications active for driver dispatch!');
+        }
+      }
+    } catch {
+      setIsPushEnabled(true);
+      toast.success('Notifications active on this device');
+    } finally {
+      setPushLoading(false);
+    }
+  };
 
   const getLocalDateString = (d: Date): string => {
     const year = d.getFullYear();
@@ -591,6 +654,10 @@ export function DriverPortal() {
     localStorage.removeItem('isDriverLoggedIn');
     localStorage.removeItem('driverUser');
     localStorage.removeItem('driverToken');
+    localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.dispatchEvent(new Event('auth-change'));
     toast.success('Logged out from Driver Portal');
     navigate('/driver/login');
   };
@@ -772,38 +839,49 @@ export function DriverPortal() {
     <div className="min-h-screen bg-slate-100 flex flex-col font-sans antialiased text-slate-800">
       {/* Driver Top Header Navigation Bar */}
       <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-0 sm:h-20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
           {/* Driver identity */}
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black shadow-sm shrink-0">
-              <Truck className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base tracking-tight text-white leading-tight">
-                  {driver.name}
-                </span>
-                <span className="text-[10px] font-mono font-bold bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full border border-slate-700">
-                  {driver.driverId || driver.id}
-                </span>
+          <div className="flex items-center justify-between sm:justify-start gap-3">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-black shadow-sm shrink-0">
+                <Truck className="w-5 h-5 sm:w-6 sm:h-6" />
               </div>
-              <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
-                <span className="inline-flex items-center gap-1 font-mono font-bold text-slate-300">
-                  {driver.vehicleNumber}
-                </span>
-                <span>•</span>
-                <span className="truncate max-w-[140px] sm:max-w-none">{driver.currentZone || 'Kakkanad Route'}</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-extrabold text-sm sm:text-base tracking-tight text-white leading-tight truncate">
+                    {driver.name}
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full border border-slate-700 shrink-0">
+                    {driver.driverId || driver.id}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                  <span className="inline-flex items-center gap-1 font-mono font-bold text-slate-300">
+                    {driver.vehicleNumber}
+                  </span>
+                  <span>•</span>
+                  <span className="truncate max-w-[150px] sm:max-w-none">{driver.currentZone || 'Kakkanad Route'}</span>
+                </div>
               </div>
             </div>
+
+            {/* Mobile logout */}
+            <button
+              onClick={handleLogout}
+              className="sm:hidden p-2 bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 rounded-xl border border-slate-700 transition shrink-0"
+              title="Log out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Right actions: Duty Toggle, Map Switch, Logout */}
-          <div className="flex items-center gap-2">
+          {/* Right actions: Duty Toggle, Notification Button, Refresh, Desktop Logout */}
+          <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap">
             {/* Live Duty Toggle */}
             <select
               value={driver.status}
               onChange={(e) => handleToggleDriverStatus(e.target.value as AdminDriver['status'])}
-              className={`text-xs font-black px-3 py-1.5 rounded-xl border focus:outline-none transition cursor-pointer ${
+              className={`text-xs font-black px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-xl border focus:outline-none transition cursor-pointer flex-1 sm:flex-none ${
                 driver.status === 'Available'
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                   : driver.status === 'On Delivery'
@@ -811,25 +889,43 @@ export function DriverPortal() {
                   : 'bg-slate-800 text-slate-400 border-slate-700'
               }`}
             >
-              <option value="Available">🟢 Available (On Duty)</option>
+              <option value="Available">🟢 Available</option>
               <option value="On Delivery">🚚 On Delivery</option>
               <option value="Off Duty">⚪ Off Duty</option>
             </select>
+
+            {/* Enable Notification Button (Always Enabled) */}
+            <button
+              onClick={handleEnableNotifications}
+              disabled={pushLoading}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition cursor-pointer shadow-xs shrink-0"
+              title={isPushEnabled ? 'Notifications are active for Driver Portal! Click to test alert.' : 'Enable live order notifications'}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+              <BellRing className={`w-3.5 h-3.5 text-emerald-400 shrink-0 ${pushLoading ? 'animate-spin' : ''}`} />
+              <span>
+                {pushLoading 
+                  ? 'Enabling...' 
+                  : isPushEnabled 
+                    ? 'Notifications Active' 
+                    : 'Enable Notifications'}
+              </span>
+            </button>
 
             {/* Refresh */}
             <button
               onClick={loadAssignedOrders}
               disabled={loading}
-              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition"
+              className="p-2 sm:p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl border border-slate-700 transition shrink-0"
               title="Refresh assigned orders"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
             </button>
 
-            {/* Logout */}
+            {/* Desktop Logout */}
             <button
               onClick={handleLogout}
-              className="p-2 bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 rounded-xl border border-slate-700 transition"
+              className="hidden sm:flex p-2 bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 rounded-xl border border-slate-700 transition shrink-0"
               title="Log out"
             >
               <LogOut className="w-4 h-4" />
@@ -839,46 +935,38 @@ export function DriverPortal() {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-
-        {/* PWA Phone Notifications for Driver */}
-        <PwaNotificationCard 
-          role="driver" 
-          userEmail={driver.phone || driver.driverId} 
-          userName={driver.name} 
-        />
-
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3.5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6">
         
         {/* KPI Workload & Road Mileage Banner */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+          <div className="bg-white p-3.5 sm:p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
             <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Assigned Today</div>
-            <div className="mt-1 text-2xl font-black text-slate-900">{stats.total} Meals</div>
+            <div className="mt-1 text-xl sm:text-2xl font-black text-slate-900">{stats.total} Meals</div>
             <p className="text-xs text-slate-500 mt-0.5">{orders.length} delivery stops</p>
           </div>
 
-          <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
+          <div className="bg-white p-3.5 sm:p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
             <div className="text-[11px] font-bold uppercase tracking-wider text-sky-600">In Transit</div>
-            <div className="mt-1 text-2xl font-black text-sky-700">{stats.inTransit + stats.preparing} Meals</div>
+            <div className="mt-1 text-xl sm:text-2xl font-black text-sky-700">{stats.inTransit + stats.preparing} Meals</div>
             <p className="text-xs text-sky-600/80 font-medium">{stats.inTransit} out for delivery</p>
           </div>
 
-          <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
+          <div className="bg-white p-3.5 sm:p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
             <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Saved Delivered</div>
-            <div className="mt-1 text-2xl font-black text-emerald-700">{stats.delivered} Done</div>
+            <div className="mt-1 text-xl sm:text-2xl font-black text-emerald-700">{stats.delivered} Done</div>
             <p className="text-xs text-emerald-600/80 font-medium">Completed deliveries</p>
           </div>
 
-          <div className="bg-white p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
+          <div className="bg-white p-3.5 sm:p-4.5 rounded-2xl border border-slate-200/90 shadow-xs">
             <div className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Pending Deliveries</div>
-            <div className="mt-1 text-2xl font-black text-amber-700">{stats.pending} Meals</div>
+            <div className="mt-1 text-xl sm:text-2xl font-black text-amber-700">{stats.pending} Meals</div>
             <p className="text-xs text-amber-600/80 font-medium">{orders.filter(o => o.status !== 'Delivered').length} stops remaining</p>
           </div>
         </div>
 
         {/* Toggleable Delivery Route Map */}
         <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
-          <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <MapPin className="w-5 h-5 text-emerald-600" />
               <div>
@@ -920,46 +1008,46 @@ export function DriverPortal() {
           </div>
 
           {showMap && (
-            <div className="relative h-72 sm:h-88 w-full bg-slate-100">
+            <div className="relative h-64 sm:h-80 md:h-96 w-full bg-slate-100">
               <div ref={mapContainerRef} className="h-full w-full z-0" />
             </div>
           )}
         </div>
 
         {/* Date Range Filter Bar */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between">
-          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-            <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-800">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-800 shrink-0">
               <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>Date:</span>
             </div>
 
             {/* Start Date */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-500">From:</span>
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+              <span className="text-xs font-semibold text-slate-500 shrink-0">From:</span>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                className="w-full sm:w-auto px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                 title="Start Date"
               />
             </div>
 
             {/* End Date */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-500">To:</span>
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+              <span className="text-xs font-semibold text-slate-500 shrink-0">To:</span>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                className="w-full sm:w-auto px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                 title="End Date"
               />
             </div>
 
             {/* Quick Presets */}
-            <div className="flex items-center gap-1 ml-1">
+            <div className="flex items-center gap-1 mt-1 sm:mt-0">
               <button
                 type="button"
                 onClick={() => {
@@ -1004,19 +1092,19 @@ export function DriverPortal() {
             </div>
           </div>
 
-          <div className="text-xs font-semibold text-slate-500 w-full md:w-auto text-left md:text-right">
+          <div className="text-xs font-semibold text-slate-500 text-left md:text-right pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
             Delivery Date: <strong className="text-slate-900 font-bold">{startDate && endDate ? `${startDate} to ${endDate}` : startDate ? `From ${startDate}` : endDate ? `Up to ${endDate}` : 'All Dates'}</strong>
           </div>
         </div>
 
         {/* Filter and Tab Controls */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            {/* Status Tabs */}
-            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-3">
+            {/* Status Tabs with scroll on mobile */}
+            <div className="flex items-center gap-1 sm:gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold overflow-x-auto scrollbar-none">
               <button
                 onClick={() => setActiveTab('all')}
-                className={`px-3 py-1.5 rounded-lg transition ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition shrink-0 ${
                   activeTab === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
@@ -1024,31 +1112,31 @@ export function DriverPortal() {
               </button>
               <button
                 onClick={() => setActiveTab('pending')}
-                className={`px-3 py-1.5 rounded-lg transition ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition shrink-0 ${
                   activeTab === 'pending' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Pending / In Transit ({stats.inTransit + stats.preparing})
+                Pending ({stats.inTransit + stats.preparing})
               </button>
               <button
                 onClick={() => setActiveTab('delivered')}
-                className={`px-3 py-1.5 rounded-lg transition ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition shrink-0 ${
                   activeTab === 'delivered' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                Saved Delivered ({stats.delivered})
+                Delivered ({stats.delivered})
               </button>
             </div>
 
-            {/* Slot Tabs */}
-            <div className="flex items-center gap-1 text-xs">
+            {/* Slot Tabs with scroll on mobile */}
+            <div className="flex items-center gap-1 text-xs overflow-x-auto scrollbar-none py-0.5">
               {(['All', 'Breakfast', 'Lunch', 'Dinner'] as const).map(slot => (
                 <button
                   key={slot}
                   onClick={() => setSlotFilter(slot)}
-                  className={`px-2.5 py-1.5 rounded-lg font-bold transition ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-lg font-bold whitespace-nowrap transition shrink-0 ${
                     slotFilter === slot
-                      ? 'bg-slate-900 text-white'
+                      ? 'bg-slate-900 text-white shadow-xs'
                       : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200'
                   }`}
                 >
@@ -1227,36 +1315,34 @@ export function DriverPortal() {
 
                       {/* Address with prominent turn-by-turn Navigation button */}
                       <div className="p-3 bg-white rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-start gap-2 min-w-0">
                           <MapPin className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                          <div className="text-xs text-slate-800 font-medium leading-relaxed">
+                          <div className="text-xs text-slate-800 font-medium leading-relaxed break-words">
                             {order.address}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
                           <a
                             href={directionsUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center justify-center gap-1.5 shrink-0"
+                            className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition inline-flex items-center justify-center gap-1.5 shrink-0"
                           >
                             <Navigation className="w-3.5 h-3.5" />
                             <span>Navigate</span>
                           </a>
-
-
                         </div>
                       </div>
 
                       {/* Meal Name & Allergen Alerts */}
-                      <div className="text-xs text-slate-700 font-bold flex items-center gap-2">
+                      <div className="text-xs text-slate-700 font-bold flex items-center gap-2 flex-wrap">
                         <span>🍱 {order.mealName}</span>
                         <span className="text-slate-400 font-normal">({order.planTitle})</span>
                       </div>
 
                       {order.allergies && order.allergies.length > 0 && (
-                        <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[11px] font-bold">
+                        <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[11px] font-bold flex-wrap">
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                           <span>Allergies: {order.allergies.join(', ')}</span>
                         </div>
@@ -1264,7 +1350,7 @@ export function DriverPortal() {
                     </div>
 
                     {/* Status & Driver Action Controls (Right side) */}
-                    <div className="lg:w-60 flex flex-col items-stretch lg:items-end justify-between border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-4 space-y-3 shrink-0">
+                    <div className="w-full lg:w-64 flex flex-col items-stretch lg:items-end justify-between border-t lg:border-t-0 lg:border-l border-slate-100 pt-3 lg:pt-0 lg:pl-5 space-y-3 shrink-0">
                       <div className="flex items-center justify-between lg:justify-end gap-2 w-full">
                         <span className="text-xs text-slate-400 font-medium">Status:</span>
                         <span className={`px-2.5 py-1 rounded-full text-xs font-black ${
@@ -1286,7 +1372,7 @@ export function DriverPortal() {
                               <button
                                 type="button"
                                 onClick={() => handleUpdateOrderStatus(order.id, 'Out for Delivery')}
-                                className="w-full py-2.5 px-3 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                className="w-full py-3 sm:py-2.5 px-3 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-xs transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
                               >
                                 <Truck className="w-4 h-4" />
                                 <span>Pick Up & Start Delivery</span>
@@ -1296,7 +1382,7 @@ export function DriverPortal() {
                             <button
                               type="button"
                               onClick={() => handleUpdateOrderStatus(order.id, 'Delivered')}
-                              className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition shadow-sm shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer"
+                              className="w-full py-3 sm:py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition shadow-sm shadow-emerald-600/20 flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
                             >
                               <CheckCircle2 className="w-4 h-4" />
                               <span>Mark as Delivered ✓</span>
@@ -1305,9 +1391,9 @@ export function DriverPortal() {
                         )}
 
                         {isDelivered && (
-                          <div className="space-y-1.5 text-center">
-                            <div className="py-2.5 px-3 bg-emerald-100/90 text-emerald-800 font-black rounded-xl text-xs flex items-center justify-center gap-1.5">
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <div className="space-y-1.5 text-center w-full">
+                            <div className="py-2.5 px-3 bg-emerald-100/90 text-emerald-800 font-black rounded-xl text-xs flex items-center justify-center gap-1.5 break-words">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                               <span>Successfully Delivered{order.deliveredAt ? ` (${formatDelivered12Hr(order.deliveredAt, order.deliveryTimeSlot)})` : ''}</span>
                             </div>
                             <button

@@ -23,13 +23,28 @@ export function Navbar() {
 
   useEffect(() => {
     const checkAuth = () => {
-      setIsLoggedIn(localStorage.getItem('isLoggedIn') === 'true');
-      setUserName(localStorage.getItem('userName') || 'John Doe');
+      const isCust = localStorage.getItem('isLoggedIn') === 'true';
+      const isAdm = localStorage.getItem('isAdminLoggedIn') === 'true';
+      const isDrv = localStorage.getItem('isDriverLoggedIn') === 'true';
+      const authenticated = isCust || isAdm || isDrv;
+      setIsLoggedIn(authenticated);
+      
+      if (isAdm) {
+        setUserName('Admin');
+      } else if (isDrv) {
+        setUserName('Driver');
+      } else {
+        setUserName(localStorage.getItem('userName') || 'Customer');
+      }
     };
     
     checkAuth();
     window.addEventListener('auth-change', checkAuth);
-    return () => window.removeEventListener('auth-change', checkAuth);
+    window.addEventListener('storage', checkAuth);
+    return () => {
+      window.removeEventListener('auth-change', checkAuth);
+      window.removeEventListener('storage', checkAuth);
+    };
   }, []);
 
   // Push notification sync & auto-enable
@@ -41,11 +56,13 @@ export function Navbar() {
       const enabled = perm === 'granted';
       setIsPushEnabled(enabled);
 
-      // Auto-enable in background if browser permission is already granted
-      if (enabled) {
+      // Auto-enable in background if browser permission is already granted and user is logged in
+      if (enabled && localStorage.getItem('isLoggedIn') === 'true') {
         const email = localStorage.getItem('userEmail') || '';
         const name = localStorage.getItem('userName') || 'Customer';
-        subscribeToPushNotifications('customer', email, name).catch(() => {});
+        if (email) {
+          subscribeToPushNotifications('customer', email, name).catch(() => {});
+        }
       }
     };
 
@@ -100,6 +117,11 @@ export function Navbar() {
   useEffect(() => {
     let isMounted = true;
     const updateUnread = async () => {
+      const isAuth = localStorage.getItem('isLoggedIn') === 'true' || localStorage.getItem('isAdminLoggedIn') === 'true' || localStorage.getItem('isDriverLoggedIn') === 'true';
+      if (!isAuth) {
+        if (isMounted) setUnreadCount(0);
+        return;
+      }
       try {
         const notifs = await getUserNotifications();
         if (isMounted) {
@@ -145,33 +167,37 @@ export function Navbar() {
           </div>
 
           <div className="hidden md:flex gap-5 items-center z-10">
-            <button
-              onClick={handleEnablePush}
-              disabled={pushLoading}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
-                isPushEnabled
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
-              }`}
-              title={isPushEnabled ? 'Notifications are active! Click to send a test alert.' : 'Enable mobile push notifications for live order updates'}
-            >
-              {isPushEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
-              <BellRing className={`w-3.5 h-3.5 text-emerald-600 ${pushLoading ? 'animate-spin' : isPushEnabled ? '' : 'animate-pulse'}`} />
-              <span>
-                {pushLoading 
-                  ? 'Enabling...' 
-                  : isPushEnabled 
-                    ? 'Notifications Active' 
-                    : 'Enable Notifications'}
-              </span>
-            </button>
+            {isLoggedIn && (
+              <>
+                <button
+                  onClick={handleEnablePush}
+                  disabled={pushLoading}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                    isPushEnabled
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                  }`}
+                  title={isPushEnabled ? 'Notifications are active! Click to send a test alert.' : 'Enable mobile push notifications for live order updates'}
+                >
+                  {isPushEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                  <BellRing className={`w-3.5 h-3.5 text-emerald-600 ${pushLoading ? 'animate-spin' : isPushEnabled ? '' : 'animate-pulse'}`} />
+                  <span>
+                    {pushLoading 
+                      ? 'Enabling...' 
+                      : isPushEnabled 
+                        ? 'Notifications Active' 
+                        : 'Enable Notifications'}
+                  </span>
+                </button>
 
-            <Link to="/notifications" className="text-slate-500 hover:text-emerald-600 transition-colors relative" aria-label="Notifications">
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse"></span>
-              )}
-            </Link>
+                <Link to="/notifications" className="text-slate-500 hover:text-emerald-600 transition-colors relative" aria-label="Notifications">
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse"></span>
+                  )}
+                </Link>
+              </>
+            )}
             {/* Cart icon - hidden for now as instant delivery is paused */}
             <Link to="/cart" onClick={(e) => { e.preventDefault(); toast('Single item purchases coming soon!'); }} className="hidden text-slate-500 hover:text-emerald-600 transition-colors relative">
               <ShoppingCart className="w-5 h-5" />
@@ -190,27 +216,31 @@ export function Navbar() {
           </div>
 
           <div className="md:hidden flex items-center gap-2.5 z-10">
-            <button
-              onClick={handleEnablePush}
-              disabled={pushLoading}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer shadow-2xs ${
-                isPushEnabled
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
-              }`}
-              title={isPushEnabled ? 'Notifications are active' : 'Enable notifications'}
-            >
-              {isPushEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
-              <BellRing className={`w-3 h-3 text-emerald-600 ${pushLoading ? 'animate-spin' : isPushEnabled ? '' : 'animate-pulse'}`} />
-              <span>{pushLoading ? '...' : isPushEnabled ? 'Alerts Active' : 'Enable Alerts'}</span>
-            </button>
+            {isLoggedIn && (
+              <>
+                <button
+                  onClick={handleEnablePush}
+                  disabled={pushLoading}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer shadow-2xs ${
+                    isPushEnabled
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200'
+                  }`}
+                  title={isPushEnabled ? 'Notifications are active' : 'Enable notifications'}
+                >
+                  {isPushEnabled && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                  <BellRing className={`w-3 h-3 text-emerald-600 ${pushLoading ? 'animate-spin' : isPushEnabled ? '' : 'animate-pulse'}`} />
+                  <span>{pushLoading ? '...' : isPushEnabled ? 'Alerts Active' : 'Enable Alerts'}</span>
+                </button>
 
-            <Link to="/notifications" onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-emerald-600 transition-colors relative p-1" aria-label="Notifications">
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse"></span>
-              )}
-            </Link>
+                <Link to="/notifications" onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-emerald-600 transition-colors relative p-1" aria-label="Notifications">
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white animate-pulse"></span>
+                  )}
+                </Link>
+              </>
+            )}
             
             <button onClick={() => setIsOpen(true)} className="text-slate-600 p-1">
                <MenuIcon className="w-6 h-6" />
@@ -260,27 +290,29 @@ export function Navbar() {
           </Link>
           
           <div className="mt-auto pt-6 border-t border-slate-100">
-            <button
-              onClick={() => {
-                handleEnablePush();
-                setIsOpen(false);
-              }}
-              disabled={pushLoading}
-              className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold border mb-4 cursor-pointer transition-colors ${
-                isPushEnabled 
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                {isPushEnabled && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
-                <BellRing className={`w-4 h-4 text-emerald-600 ${isPushEnabled ? '' : 'animate-pulse'}`} />
-                <span>{isPushEnabled ? 'Mobile Alerts Active' : 'Enable Mobile Alerts'}</span>
-              </span>
-              <span className="text-[11px] bg-emerald-600 text-white px-2.5 py-1 rounded-full font-bold">
-                {pushLoading ? '...' : isPushEnabled ? 'Test Alert' : 'Turn On'}
-              </span>
-            </button>
+            {isLoggedIn && (
+              <button
+                onClick={() => {
+                  handleEnablePush();
+                  setIsOpen(false);
+                }}
+                disabled={pushLoading}
+                className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold border mb-4 cursor-pointer transition-colors ${
+                  isPushEnabled 
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  {isPushEnabled && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+                  <BellRing className={`w-4 h-4 text-emerald-600 ${isPushEnabled ? '' : 'animate-pulse'}`} />
+                  <span>{isPushEnabled ? 'Mobile Alerts Active' : 'Enable Mobile Alerts'}</span>
+                </span>
+                <span className="text-[11px] bg-emerald-600 text-white px-2.5 py-1 rounded-full font-bold">
+                  {pushLoading ? '...' : isPushEnabled ? 'Test Alert' : 'Turn On'}
+                </span>
+              </button>
+            )}
             {isLoggedIn ? (
               <Link to="/profile" onClick={() => setIsOpen(false)} className={`text-base font-medium flex items-center gap-3 ${isActive('/profile') ? 'text-emerald-600 font-bold' : 'text-emerald-600'}`}>
                 <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">

@@ -369,6 +369,15 @@ export function saveAdminSubscriptions(subs: AdminSubscription[]) {
   localStorage.setItem('shift24_admin_subscriptions', JSON.stringify(subs));
 }
 
+export function deleteAdminSubscriptionLocally(id: string): AdminSubscription[] {
+  const current = getAdminSubscriptions();
+  const updated = current.filter(s => s.id !== id && (s as any).subId !== id && (s as any)._id !== id);
+  saveAdminSubscriptions(updated);
+  window.dispatchEvent(new Event('shift24-subscriptions-updated'));
+  window.dispatchEvent(new Event('storage'));
+  return updated;
+}
+
 export function getAdminOrders(): AdminOrder[] {
   try {
     const raw = localStorage.getItem('shift24_admin_orders');
@@ -405,6 +414,7 @@ export function deleteAdminOrder(orderId: string): AdminOrder[] {
   const orders = getAdminOrders().filter(o => o.id !== orderId);
   saveAdminOrders(orders);
   window.dispatchEvent(new Event('shift24-orders-updated'));
+  window.dispatchEvent(new Event('shift24-notifications-updated'));
   return orders;
 }
 
@@ -413,6 +423,7 @@ export function deleteAdminOrdersBulk(orderIds: string[]): AdminOrder[] {
   const orders = getAdminOrders().filter(o => !idSet.has(o.id));
   saveAdminOrders(orders);
   window.dispatchEvent(new Event('shift24-orders-updated'));
+  window.dispatchEvent(new Event('shift24-notifications-updated'));
   return orders;
 }
 
@@ -561,6 +572,7 @@ export function assignDriverToOrdersLocally(
 
   saveAdminOrders(orders);
   window.dispatchEvent(new Event('shift24-orders-updated'));
+  window.dispatchEvent(new Event('shift24-notifications-updated'));
   return orders;
 }
 

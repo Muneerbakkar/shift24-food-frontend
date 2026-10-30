@@ -59,7 +59,19 @@ export function getResolvedUserEmail(userEmailOverride?: string): string {
   return '';
 }
 
+export function isUserLoggedIn(): boolean {
+  return (
+    localStorage.getItem('isLoggedIn') === 'true' ||
+    localStorage.getItem('isAdminLoggedIn') === 'true' ||
+    localStorage.getItem('isDriverLoggedIn') === 'true'
+  );
+}
+
 export function getCurrentUserContext(): UserContext {
+  if (!isUserLoggedIn()) {
+    return { role: 'customer', email: '', name: 'Guest' };
+  }
+
   // 1. Admin
   if (localStorage.getItem('isAdminLoggedIn') === 'true') {
     let email = 'admin@shift24.com';
@@ -141,6 +153,11 @@ export async function getUserNotifications(options?: {
   email?: string;
   driverId?: string;
 }): Promise<UserNotification[]> {
+  // If not logged in at all, strictly do not query or return any customer's notifications
+  if (!isUserLoggedIn()) {
+    return [];
+  }
+
   const ctx = getCurrentUserContext();
   const role = options?.role || ctx.role;
   const email = options?.email || ctx.email;
@@ -165,8 +182,8 @@ export async function getUserNotifications(options?: {
         role: item.role,
         title: item.title,
         message: item.message,
-        time: formatRelativeTime(item.createdAt),
-        timestamp: new Date(item.createdAt).getTime(),
+        time: formatRelativeTime(item.updatedAt || item.createdAt),
+        timestamp: new Date(item.updatedAt || item.createdAt).getTime(),
         type: item.type || 'order',
         status: item.status,
         unread: !!item.unread,
