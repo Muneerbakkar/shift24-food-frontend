@@ -290,29 +290,6 @@ export function Navbar() {
           </Link>
           
           <div className="mt-auto pt-6 border-t border-slate-100">
-            {isLoggedIn && (
-              <button
-                onClick={() => {
-                  handleEnablePush();
-                  setIsOpen(false);
-                }}
-                disabled={pushLoading}
-                className={`w-full flex items-center justify-between p-3 rounded-2xl text-xs font-bold border mb-4 cursor-pointer transition-colors ${
-                  isPushEnabled 
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
-                    : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  {isPushEnabled && <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
-                  <BellRing className={`w-4 h-4 text-emerald-600 ${isPushEnabled ? '' : 'animate-pulse'}`} />
-                  <span>{isPushEnabled ? 'Mobile Alerts Active' : 'Enable Mobile Alerts'}</span>
-                </span>
-                <span className="text-[11px] bg-emerald-600 text-white px-2.5 py-1 rounded-full font-bold">
-                  {pushLoading ? '...' : isPushEnabled ? 'Test Alert' : 'Turn On'}
-                </span>
-              </button>
-            )}
             {isLoggedIn ? (
               <Link to="/profile" onClick={() => setIsOpen(false)} className={`text-base font-medium flex items-center gap-3 ${isActive('/profile') ? 'text-emerald-600 font-bold' : 'text-emerald-600'}`}>
                 <div className="bg-emerald-100 p-2 rounded-full text-emerald-600">
