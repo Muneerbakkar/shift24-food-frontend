@@ -33,32 +33,44 @@ export const twoMealLabels: Record<TwoMealSlot, string> = {
   'breakfast-dinner': 'Breakfast & Dinner',
 };
 
-function formatFoodItem(item: FoodItem, planId: string) {
+function formatFoodItem(item: any, planId: string) {
   return {
+    id: item._id || item.id,
     name: item.name,
     cals: item.calories,
     desc: item.description || `${item.name} prepared fresh according to your ${planId} targets.`,
-    image: item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=600',
+    image: item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800',
     benefits: item.benefits && item.benefits.length > 0 ? item.benefits : ['Chef crafted', 'Balanced nutrition', 'High quality ingredients'],
     macros: {
       protein: item.protein || '25g',
       carbs: item.carbs || '40g',
       fat: item.fat || '15g'
     },
-    micros: ['Iron', 'Potassium', 'Vitamin C']
+    micros: (item.microNutrients && item.microNutrients.length > 0)
+      ? item.microNutrients.map((m: any) => typeof m === 'string' ? m : `${m.name} (${m.amount})`)
+      : ['Iron', 'Potassium', 'Vitamin C'],
+    ingredients: item.ingredients || []
   };
 }
 
-export function getFoodForPlanAndDay(planId: string, day: number, mealType: 'breakfast' | 'lunch' | 'dinner') {
-  const foods = getAdminFoods();
-  const normalizedPlanId = (planId || 'balance').trim().toLowerCase();
+export function getFoodForPlanAndDay(planId: string, day: number, mealType: 'breakfast' | 'lunch' | 'dinner', customFoods?: any[]) {
+  const foods = customFoods && customFoods.length > 0 ? customFoods : getAdminFoods();
+  const normalizedPlanId = (planId || 'healthy-food').trim().toLowerCase();
   const normalizedMealType = (mealType || '').trim().toLowerCase();
+
+  // Helper to match plan IDs
+  const matchPlan = (fPlan: string) => {
+    const p = fPlan.toLowerCase().trim();
+    return p === normalizedPlanId || p === 'all' || 
+      (normalizedPlanId === 'healthy-food' && (p === 'balance' || p === 'healthy_food')) || 
+      (normalizedPlanId === 'balance' && (p === 'healthy-food' || p === 'healthy_food'));
+  };
 
   // 1. Direct match for exact plan, day, mealType
   const exactMatch = foods.find(f => {
     const fPlan = (f.planId || (f as any).id || '').trim().toLowerCase();
     const fMeal = (f.mealType || '').trim().toLowerCase();
-    return (fPlan === normalizedPlanId || fPlan === 'all') && Number(f.day) === Number(day) && fMeal === normalizedMealType;
+    return matchPlan(fPlan) && Number(f.day) === Number(day) && fMeal === normalizedMealType;
   });
   if (exactMatch) {
     return formatFoodItem(exactMatch, planId);
@@ -68,7 +80,7 @@ export function getFoodForPlanAndDay(planId: string, day: number, mealType: 'bre
   const planFoods = foods.filter(f => {
     const fPlan = (f.planId || (f as any).id || '').trim().toLowerCase();
     const fMeal = (f.mealType || '').trim().toLowerCase();
-    return (fPlan === normalizedPlanId || fPlan === 'all') && fMeal === normalizedMealType;
+    return matchPlan(fPlan) && fMeal === normalizedMealType;
   }).sort((a, b) => Number(a.day) - Number(b.day));
 
   if (planFoods.length > 0) {
@@ -92,10 +104,11 @@ export function getFoodForPlanAndDay(planId: string, day: number, mealType: 'bre
     name: `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} Special`,
     cals: '450 kcal',
     desc: `Chef-crafted fresh meal tailored for the ${planId} plan.`,
-    image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=600',
+    image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800',
     benefits: ['Chef Crafted', 'Balanced Nutrition', 'High Quality Ingredients'],
     macros: { protein: '30g', carbs: '40g', fat: '15g' },
-    micros: ['Iron', 'Potassium', 'Vitamin C']
+    micros: ['Iron', 'Potassium', 'Vitamin C'],
+    ingredients: []
   };
 }
 
@@ -401,44 +414,49 @@ export function SubscriptionPlan() {
 }
 
 export function PlanMenu() {
-  const { planId, durationId } = useParams();
+  const { planId, durationId: routeDurationId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [adminPlans, setAdminPlans] = useState<AdminPlanConfig[]>(() => getAdminPlans());
-  const [, setFoodsVersion] = useState(0);
+  const [dbFoods, setDbFoods] = useState<any[]>(() => getAdminFoods());
+  const [loading, setLoading] = useState(true);
+  const [activeDurationId, setActiveDurationId] = useState<string>(routeDurationId || '7-day');
+
+  const plan = adminPlans.find(p => p.id === planId || (p as any).planId === planId) || adminPlans[0] || {
+    id: planId || 'healthy-food',
+    title: 'Balanced Healthy Meals',
+    description: 'Custom nutrition plan'
+  };
+  const resolvedPlanId = plan.id || (plan as any).planId || 'healthy-food';
 
   useEffect(() => {
+    let isMounted = true;
     const sync = () => {
       setAdminPlans(getAdminPlans());
-      setFoodsVersion(v => v + 1);
     };
     window.addEventListener('shift24-plans-updated', sync);
     window.addEventListener('shift24-foods-updated', sync);
     window.addEventListener('storage', sync);
 
+    // Fetch live from MongoDB menuitems collection
     fetchWeeklyMenu().then(res => {
-      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
-        const localFoods = getAdminFoods();
-        const backendKeys = new Set(res.data.map((i: any) => `${(i.planId || '').toLowerCase()}-${Number(i.day)}-${(i.mealType || '').toLowerCase()}`));
-        const extraLocal = localFoods.filter(f => !backendKeys.has(`${(f.planId || '').toLowerCase()}-${Number(f.day)}-${(f.mealType || '').toLowerCase()}`));
-        const merged = [...res.data, ...extraLocal];
-        saveAdminFoods(merged);
+      if (isMounted && res.success && Array.isArray(res.data) && res.data.length > 0) {
+        setDbFoods(res.data);
+        saveAdminFoods(res.data);
       }
-    }).catch(() => {});
+    }).catch(err => {
+      console.warn('Failed to load menuitems from database:', err);
+    }).finally(() => {
+      if (isMounted) setLoading(false);
+    });
 
     return () => {
+      isMounted = false;
       window.removeEventListener('shift24-plans-updated', sync);
       window.removeEventListener('shift24-foods-updated', sync);
       window.removeEventListener('storage', sync);
     };
-  }, []);
-
-  const plan = adminPlans.find(p => p.id === planId || (p as any).planId === planId) || adminPlans[0] || {
-    id: planId || 'balance',
-    title: 'Healthy Meal Plan',
-    description: 'Custom nutrition plan'
-  };
-  const resolvedPlanId = plan.id || (plan as any).planId || 'balance';
+  }, [resolvedPlanId]);
 
   const mealsParam = (searchParams.get('meals') as MealCount) || '3';
   const slotParam = searchParams.get('slot') || 'lunch';
@@ -459,23 +477,37 @@ export function PlanMenu() {
   const [selectedMealType, setSelectedMealType] = useState<'breakfast' | 'lunch' | 'dinner'>(getInitialMealType);
 
   const matchedDuration = (plan as any).durationOptions?.find(
-    (d: any) => d.id === durationId || String(d.days) === durationId || d.id === `${durationId}-day`
+    (d: any) => d.id === activeDurationId || String(d.days) === activeDurationId || d.id === `${activeDurationId}-day`
   );
-  const rawParsed = parseInt(durationId?.split('-')[0] || '7', 10);
+  const rawParsed = parseInt(activeDurationId?.split('-')[0] || '7', 10);
   const durationDays = (matchedDuration?.days && Number(matchedDuration.days) > 0 && Number(matchedDuration.days) <= 90)
     ? Number(matchedDuration.days)
     : (!isNaN(rawParsed) && rawParsed > 0 && rawParsed <= 90 ? rawParsed : 7);
 
-  // Generate menu for the full duration tailored to this specific plan
-  const fullMenu = Array.from({ length: durationDays }, (_, i) => {
+  // Find all available days in the database for this plan
+  const planDbFoods = dbFoods.filter(f => {
+    const p = (f.planId || '').toLowerCase().trim();
+    const r = resolvedPlanId.toLowerCase().trim();
+    return p === r || p === 'all' || 
+      (r === 'healthy-food' && (p === 'balance' || p === 'healthy_food')) || 
+      (r === 'balance' && (p === 'healthy-food' || p === 'healthy_food'));
+  });
+
+  const availableDays: number[] = Array.from(new Set<number>(planDbFoods.map((f: any) => Number(f.day)).filter((d: number) => d > 0))).sort((a, b) => a - b);
+  const daysToShowCount = Math.max(durationDays, availableDays.length > 0 ? availableDays.length : 7);
+
+  // Generate menu using database menuitems
+  const fullMenu = Array.from({ length: daysToShowCount }, (_, i) => {
     const dayNum = i + 1;
     return {
       day: dayNum,
-      breakfast: getFoodForPlanAndDay(resolvedPlanId, dayNum, 'breakfast'),
-      lunch: getFoodForPlanAndDay(resolvedPlanId, dayNum, 'lunch'),
-      dinner: getFoodForPlanAndDay(resolvedPlanId, dayNum, 'dinner')
+      breakfast: getFoodForPlanAndDay(resolvedPlanId, dayNum, 'breakfast', dbFoods),
+      lunch: getFoodForPlanAndDay(resolvedPlanId, dayNum, 'lunch', dbFoods),
+      dinner: getFoodForPlanAndDay(resolvedPlanId, dayNum, 'dinner', dbFoods)
     };
   });
+
+  const durationOptions = (plan as any).durationOptions || DEFAULT_DURATION_OPTIONS;
 
   return (
     <div className="py-24 bg-slate-50 min-h-screen">
@@ -487,11 +519,34 @@ export function PlanMenu() {
           <ArrowLeft className="w-4 h-4 mr-2" /> Back to Plans
         </button>
 
-        <div className="text-center mb-12">
+        <div className="text-center mb-8">
           <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4">Your {plan.title} Menu</h2>
-          <p className="text-slate-500 text-lg">
-            Here is a sneak peek at what you'll be eating on the {plan.title} plan for {durationDays} days.
+          <p className="text-slate-500 text-lg max-w-2xl mx-auto">
+            Chef-crafted rotating daily menu prepared fresh from our cloud kitchen for the {plan.title} plan.
           </p>
+
+          {/* Duration selector pill buttons */}
+          {durationOptions.length > 1 && (
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Preview Duration:</span>
+              {durationOptions.map((opt: any) => {
+                const isSelected = activeDurationId === opt.id || String(opt.days) === activeDurationId;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => setActiveDurationId(opt.id)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                      isSelected 
+                        ? 'bg-slate-900 text-white shadow-sm ring-2 ring-emerald-500' 
+                        : 'bg-white text-slate-600 border border-slate-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    {opt.title || `${opt.days} Days`}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Meal Type Navigation */}
@@ -527,11 +582,15 @@ export function PlanMenu() {
             return (
               <div 
                 key={idx}
-                onClick={() => navigate(`/plan/${resolvedPlanId}/menu/${durationId}/meal/${dayMenu.day}/${selectedMealType}`)}
-                className="bg-white rounded-2xl md:rounded-3xl overflow-hidden border border-slate-200 shadow-sm flex flex-col hover:border-emerald-400 hover:shadow-lg transition-all cursor-pointer transform hover:-translate-y-1"
+                onClick={() => navigate(`/plan/${resolvedPlanId}/menu/${activeDurationId}/meal/${dayMenu.day}/${selectedMealType}`)}
+                className="bg-white rounded-2xl md:rounded-3xl overflow-hidden border border-slate-200 shadow-sm flex flex-col hover:border-emerald-400 hover:shadow-lg transition-all cursor-pointer transform hover:-translate-y-1 group"
               >
-                <div className="w-full h-48 relative bg-slate-100">
-                  <img src={meal.image} alt={meal.name} className="w-full h-full object-cover" />
+                <div className="w-full h-48 relative bg-slate-100 overflow-hidden">
+                  <img 
+                    src={meal.image} 
+                    alt={meal.name} 
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                  />
                   <div className={`absolute top-4 left-4 w-10 h-10 bg-white/90 backdrop-blur-sm ${color} rounded-2xl flex items-center justify-center shadow-sm`}>
                     {icon}
                   </div>
@@ -540,9 +599,20 @@ export function PlanMenu() {
                   </div>
                 </div>
                 <div className="p-6 md:p-8 flex flex-col flex-grow">
-                  <h3 className="text-xl font-bold text-slate-900 mb-3 group-hover:text-emerald-600 transition-colors">{meal.name}</h3>
-                  <p className="text-slate-500 text-sm mb-6 flex-grow">{meal.desc}</p>
-                  <div className="font-semibold text-emerald-600 mt-auto">{meal.cals}</div>
+                  <h3 className="text-xl font-bold text-slate-900 mb-2 group-hover:text-emerald-600 transition-colors line-clamp-1">{meal.name}</h3>
+                  <p className="text-slate-500 text-sm mb-4 flex-grow line-clamp-2 leading-relaxed">{meal.desc}</p>
+                  
+                  {/* Macros Pills */}
+                  <div className="flex items-center gap-2 mb-4 pt-2 border-t border-slate-100 text-xs font-semibold text-slate-600">
+                    <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-bold">{meal.macros.protein} Prot</span>
+                    <span className="bg-slate-100 px-2 py-0.5 rounded-md">{meal.macros.carbs} Carbs</span>
+                    <span className="bg-slate-100 px-2 py-0.5 rounded-md">{meal.macros.fat} Fat</span>
+                  </div>
+
+                  <div className="font-bold text-emerald-600 mt-auto flex items-center justify-between">
+                    <span>{meal.cals}</span>
+                    <span className="text-xs font-bold text-slate-400 group-hover:text-emerald-600 transition-colors">View Recipe &rarr;</span>
+                  </div>
                 </div>
               </div>
             );
@@ -552,7 +622,7 @@ export function PlanMenu() {
         <div className="mt-12 text-center">
            <button 
              onClick={() => {
-               const checkoutUrl = `/checkout/${resolvedPlanId}/${durationId}?meals=${mealsParam}&slot=${slotParam}`;
+               const checkoutUrl = `/checkout/${resolvedPlanId}/${activeDurationId}?meals=${mealsParam}&slot=${slotParam}`;
                const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
                if (isLoggedIn) {
                  navigate(checkoutUrl);
@@ -578,6 +648,7 @@ export function MealDetails() {
   const [zoomProps, setZoomProps] = useState({ scale: 1, x: 50, y: 50 });
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const zoomStateRef = useRef({ scale: 1, x: 50, y: 50 });
+  const [dbFoods, setDbFoods] = useState<any[]>(() => getAdminFoods());
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
@@ -585,6 +656,13 @@ export function MealDetails() {
     window.addEventListener('shift24-foods-updated', handleUpdate);
     window.addEventListener('shift24-plans-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
+
+    fetchWeeklyMenu().then(res => {
+      if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        setDbFoods(res.data);
+      }
+    }).catch(() => {});
+
     return () => {
       window.removeEventListener('shift24-foods-updated', handleUpdate);
       window.removeEventListener('shift24-plans-updated', handleUpdate);
@@ -594,14 +672,14 @@ export function MealDetails() {
   
   const adminPlans = getAdminPlans();
   const matchedPlan = adminPlans.find(p => p.id === planId || (p as any).planId === planId);
-  const resolvedPlanId = matchedPlan?.id || (matchedPlan as any)?.planId || planId || 'balance';
+  const resolvedPlanId = matchedPlan?.id || (matchedPlan as any)?.planId || planId || 'healthy-food';
 
   const dayNum = parseInt(dayId || '1');
   const mealTypeStr = (mealType as 'breakfast' | 'lunch' | 'dinner') || 'breakfast';
   
   const meal = useMemo(() => {
-    return getFoodForPlanAndDay(resolvedPlanId, dayNum, mealTypeStr);
-  }, [resolvedPlanId, dayNum, mealTypeStr, version]);
+    return getFoodForPlanAndDay(resolvedPlanId, dayNum, mealTypeStr, dbFoods);
+  }, [resolvedPlanId, dayNum, mealTypeStr, version, dbFoods]);
 
   // reset image index when navigating between meals or changing days/slots
   useEffect(() => {
@@ -922,12 +1000,13 @@ export function MenuExplorer() {
   const activePlans = [...plansList]
     .filter(p => p.active !== false)
     .sort((a, b) => getPlanSortRank(a) - getPlanSortRank(b));
-  const [planId, setPlanId] = useState(activePlans[0]?.id || 'weight-loss');
+  const [planId, setPlanId] = useState(activePlans[0]?.id || 'healthy-food');
   const currentPlan = activePlans.find(p => p.id === planId) || activePlans[0];
   const durations = ((currentPlan?.durationOptions && currentPlan.durationOptions.length > 0)
     ? currentPlan.durationOptions
     : DEFAULT_DURATION_OPTIONS).slice().sort((a, b) => (Number(a.days) || 0) - (Number(b.days) || 0));
-  const [durationId, setDurationId] = useState(durations[0]?.id || '7-days');
+  const defaultDur = durations.find((d: any) => Number(d.days) === 7 || d.popular) || durations[0];
+  const [durationId, setDurationId] = useState(defaultDur?.id || '7-day');
 
   return (
     <div className="py-24 bg-slate-50 min-h-screen">
@@ -946,7 +1025,8 @@ export function MenuExplorer() {
                 onClick={() => {
                   setPlanId(p.id);
                   if (p.durationOptions && p.durationOptions.length > 0) {
-                    setDurationId(p.durationOptions[0].id);
+                    const dur = p.durationOptions.find((d: any) => Number(d.days) === 7 || d.popular) || p.durationOptions[0];
+                    setDurationId(dur.id);
                   }
                 }}
                 className={`p-6 rounded-2xl border-2 text-left transition-all ${planId === p.id ? 'border-emerald-500 bg-emerald-50' : 'border-slate-100 hover:border-emerald-200'}`}
