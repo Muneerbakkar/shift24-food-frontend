@@ -49,7 +49,8 @@ function formatFoodItem(item: any, planId: string) {
     macros: {
       protein: item.protein || '25g',
       carbs: item.carbs || '40g',
-      fat: item.fat || '15g'
+      fat: item.fat || '15g',
+      fiber: item.fiber || ''
     },
     micros: (item.microNutrients && item.microNutrients.length > 0)
       ? item.microNutrients.map((m: any) => typeof m === 'string' ? m : `${m.name} (${m.amount})`)
@@ -112,7 +113,7 @@ export function getFoodForPlanAndDay(planId: string, day: number, mealType: 'bre
     desc: `Chef-crafted fresh meal tailored for the ${planId} plan.`,
     image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800',
     benefits: ['Chef Crafted', 'Balanced Nutrition', 'High Quality Ingredients'],
-    macros: { protein: '30g', carbs: '40g', fat: '15g' },
+    macros: { protein: '30g', carbs: '40g', fat: '15g', fiber: '' },
     micros: ['Iron', 'Potassium', 'Vitamin C'],
     ingredients: []
   };
@@ -624,10 +625,13 @@ export function PlanMenu() {
                     <p className="text-slate-500 text-sm mb-4 flex-grow line-clamp-2 leading-relaxed">{meal.desc}</p>
                     
                     {/* Macros Pills */}
-                    <div className="flex items-center gap-2 mb-4 pt-2 border-t border-slate-100 text-xs font-semibold text-slate-600">
+                    <div className="flex flex-wrap items-center gap-2 mb-4 pt-2 border-t border-slate-100 text-xs font-semibold text-slate-600">
                       <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-md font-bold">{meal.macros.protein} Prot</span>
                       <span className="bg-slate-100 px-2 py-0.5 rounded-md">{meal.macros.carbs} Carbs</span>
                       <span className="bg-slate-100 px-2 py-0.5 rounded-md">{meal.macros.fat} Fat</span>
+                      {meal.macros.fiber && (
+                        <span className="bg-slate-100 px-2 py-0.5 rounded-md">{meal.macros.fiber} Fibre</span>
+                      )}
                     </div>
 
                     <div className="font-bold text-emerald-600 mt-auto flex items-center justify-between">
@@ -988,6 +992,15 @@ export function MealDetails() {
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-3">
                       <div className="bg-red-500 h-3 rounded-full shadow-sm" style={{ width: '20%' }}></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-lg mb-3">
+                      <span className="font-semibold text-slate-600">Fibre</span>
+                      <span className="font-black text-slate-900">{meal.macros.fiber || '—'}</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-3">
+                      <div className="bg-emerald-500 h-3 rounded-full shadow-sm" style={{ width: '25%' }}></div>
                     </div>
                   </div>
                 </div>

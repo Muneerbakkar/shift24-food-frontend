@@ -1298,6 +1298,7 @@ export interface FoodItem {
   protein: string;
   carbs: string;
   fat: string;
+  fiber?: string;
   benefits?: string[];
   image?: string;
   images?: string[];

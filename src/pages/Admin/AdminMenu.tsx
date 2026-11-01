@@ -74,6 +74,7 @@ export interface FoodItem {
   protein: string;
   carbs: string;
   fat: string;
+  fiber?: string;
   benefits?: string[];
   image?: string;
   images?: string[];
@@ -156,6 +157,7 @@ export function AdminMenu() {
     protein: string;
     carbs: string;
     fat: string;
+    fiber: string;
     benefits: string;
     image: string;
     images: string[];
@@ -171,6 +173,7 @@ export function AdminMenu() {
     protein: '30g',
     carbs: '40g',
     fat: '15g',
+    fiber: '',
     benefits: 'High Protein, Fresh Ingredients',
     image: '',
     images: [],
@@ -333,6 +336,7 @@ export function AdminMenu() {
           protein: item.protein || '20g',
           carbs: item.carbs || '40g',
           fat: item.fat || '15g',
+          fiber: item.fiber || '',
           benefits: item.benefits || [],
           image: item.image || '',
           images: Array.isArray(item.images) ? item.images.filter(Boolean) : [],
@@ -535,6 +539,7 @@ export function AdminMenu() {
       protein: '30g',
       carbs: '40g',
       fat: '15g',
+      fiber: '',
       benefits: 'Clean Fuel, Chef Prepared, Nutrient Rich',
       // No stock default: a new dish starts without a photo so only real uploads show on the site.
       image: '',
@@ -564,6 +569,7 @@ export function AdminMenu() {
       protein: food.protein || '25g',
       carbs: food.carbs || '40g',
       fat: food.fat || '15g',
+      fiber: food.fiber || '',
       benefits: (food.benefits || []).join(', '),
       image: food.image || '',
       images: Array.isArray(food.images) ? [...food.images] : [],
@@ -608,6 +614,7 @@ export function AdminMenu() {
       protein: foodForm.protein.trim(),
       carbs: foodForm.carbs.trim(),
       fat: foodForm.fat.trim(),
+      fiber: foodForm.fiber.trim(),
       benefits: benefitsArray,
       image: foodForm.image.trim() || foodForm.images[0] || '',
       images: foodForm.images.filter(url => url && url !== (foodForm.image.trim() || foodForm.images[0])),
@@ -1087,8 +1094,8 @@ export function AdminMenu() {
 
               {/* Macronutrients Breakdown */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
-                <label className="block font-bold text-slate-700 mb-2">Macronutrients (Protein, Carbs, Fat)</label>
-                <div className="grid grid-cols-3 gap-3">
+                <label className="block font-bold text-slate-700 mb-2">Macronutrients (Protein, Carbs, Fat, Fibre)</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
                     <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Protein</span>
                     <input
@@ -1116,6 +1123,16 @@ export function AdminMenu() {
                       placeholder="e.g. 15g"
                       value={foodForm.fat}
                       onChange={(e) => setFoodForm({ ...foodForm, fat: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Fibre</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 8g"
+                      value={foodForm.fiber}
+                      onChange={(e) => setFoodForm({ ...foodForm, fiber: e.target.value })}
                       className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-800"
                     />
                   </div>
@@ -1821,7 +1838,7 @@ function MealSlotCard({
             </div>
 
             {/* Macros Chips */}
-            <div className="grid grid-cols-3 gap-1.5 text-center text-xs pt-1">
+            <div className="grid grid-cols-4 gap-1.5 text-center text-xs pt-1">
               <div className="bg-white p-2 rounded-xl border border-slate-200/80 shadow-2xs">
                 <span className="text-[10px] text-slate-400 block font-bold">Protein</span>
                 <span className="font-extrabold text-slate-800">{food.protein || '20g'}</span>
@@ -1833,6 +1850,10 @@ function MealSlotCard({
               <div className="bg-white p-2 rounded-xl border border-slate-200/80 shadow-2xs">
                 <span className="text-[10px] text-slate-400 block font-bold">Fats</span>
                 <span className="font-extrabold text-slate-800">{food.fat || '15g'}</span>
+              </div>
+              <div className="bg-white p-2 rounded-xl border border-slate-200/80 shadow-2xs">
+                <span className="text-[10px] text-slate-400 block font-bold">Fibre</span>
+                <span className="font-extrabold text-slate-800">{food.fiber || '—'}</span>
               </div>
             </div>
 
