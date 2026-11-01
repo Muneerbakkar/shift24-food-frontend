@@ -19,7 +19,8 @@ import {
   Wallet,
   TrendingUp,
   Truck,
-  Settings
+  Settings,
+  Gift
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiGetMe, apiLogout, apiAdminLogin } from '../../services/api';
@@ -122,6 +123,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { label: 'Ingredient Purchases', path: '/admin/purchases', icon: Receipt },
     { label: 'Operational Expenses', path: '/admin/expenses', icon: Wallet },
     { label: 'Customers', path: '/admin/customers', icon: Users },
+    { label: 'Referrals & Rewards', path: '/admin/referrals', icon: Gift },
     { label: 'Users', path: '/admin/users', icon: UserCheck },
     { label: 'Settings', path: '/admin/settings', icon: Settings },
   ];

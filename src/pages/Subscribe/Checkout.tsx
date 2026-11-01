@@ -28,10 +28,19 @@ import {
   ChevronDown,
   ChevronUp,
   Navigation,
-  Trash2
+  Trash2,
+  Gift
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { apiGetMe, apiUpdateAddresses, createBackendSubscription } from '../../services/api';
+import { 
+  apiGetMe, 
+  apiUpdateAddresses, 
+  createBackendSubscription, 
+  createRazorpayOrder, 
+  verifyRazorpayPayment, 
+  validateReferralCode 
+} from '../../services/api';
+import { openRazorpayCheckout } from '../../utils/razorpay';
 import { LocationMapPicker, GeocodedAddress } from '../../components/ui/LocationMapPicker';
 
 const iconMap = {
@@ -73,6 +82,12 @@ export function CheckoutDetails() {
 
   const [adminPlans, setAdminPlans] = useState(() => getAdminPlans());
   const plans = adminPlans;
+
+  // Referral Program State
+  const [referralCodeInput, setReferralCodeInput] = useState(searchParams.get('ref') || '');
+  const [appliedReferral, setAppliedReferral] = useState<{ code: string; referrerName: string } | null>(null);
+  const [referralError, setReferralError] = useState('');
+  const [isValidatingReferral, setIsValidatingReferral] = useState(false);
 
   const adminPlan = adminPlans.find(p => p.id === currentPlanId || (p as any).planId === currentPlanId);
   const plan = adminPlan || adminPlans[0] || ({ id: currentPlanId, title: 'Custom Meal Plan', pricePerWeek: 2800, calories: '1800 - 2000 kcal/day', benefits: [] } as any);
@@ -121,9 +136,7 @@ export function CheckoutDetails() {
     return `${mealsPerDay} Meals Daily`;
   };
 
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'upi' | 'cod'>('card');
-  const [cardDetails, setCardDetails] = useState({ number: '', expiry: '', cvc: '', name: '' });
-  const [upiId, setUpiId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'cod'>('online');
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Dynamic duration option matching from admin config
@@ -459,6 +472,43 @@ export function CheckoutDetails() {
     }
   }, []);
 
+  // Auto-apply referral code if present in URL (?ref=...)
+  useEffect(() => {
+    const urlRef = searchParams.get('ref');
+    if (urlRef && !appliedReferral) {
+      const cleanRef = urlRef.trim().toUpperCase();
+      setReferralCodeInput(cleanRef);
+      validateReferralCode(cleanRef, currentUser?.email)
+        .then(res => {
+          if (res && res.valid) {
+            setAppliedReferral({ code: res.referralCode, referrerName: res.referrerName });
+            toast.success(`Referral applied: Referred by ${res.referrerName}!`, { id: 'ref-toast' });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [searchParams, currentUser?.email]);
+
+  const handleApplyReferralCode = async () => {
+    if (!referralCodeInput.trim()) return;
+    setIsValidatingReferral(true);
+    setReferralError('');
+    try {
+      const res = await validateReferralCode(referralCodeInput.trim(), currentUser?.email);
+      if (res && res.valid) {
+        setAppliedReferral({ code: res.referralCode, referrerName: res.referrerName });
+        toast.success(res.message || `Referral code applied!`);
+      } else {
+        setReferralError(res.message || 'Invalid referral code');
+        toast.error(res.message || 'Invalid referral code');
+      }
+    } catch (err: any) {
+      setReferralError(err.message || 'Error validating code');
+    } finally {
+      setIsValidatingReferral(false);
+    }
+  };
+
   const updateAddressFields = (fields: Partial<typeof addressFields>) => {
     setAddressFields(prev => {
       const next = { ...prev, ...fields };
@@ -685,31 +735,14 @@ export function CheckoutDetails() {
   const firstDay = getFirstDayOfMonth(currentMonth);
   const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  const handleCompleteOrder = async () => {
+  const finalizeSubscriptionOrder = async (paymentInfo: {
+    paymentLabel: string;
+    paymentStatus?: string;
+    razorpayOrderId?: string;
+    razorpayPaymentId?: string;
+    razorpaySignature?: string;
+  }) => {
     const effectiveAddress = (formData.address || formatFullAddress(addressFields)).trim();
-
-    if (!formData.name.trim() || !formData.phone.trim() || !effectiveAddress) {
-      toast.error('Please fill in your full name, phone number, and delivery address.');
-      return;
-    }
-
-    if (paymentMethod === 'card' && !cardDetails.number.trim()) {
-      toast.error('Please enter your card number.');
-      return;
-    }
-
-    if (paymentMethod === 'upi' && !upiId.trim()) {
-      toast.error('Please enter your UPI ID.');
-      return;
-    }
-
-    setIsProcessing(true);
-
-    const paymentLabel = paymentMethod === 'card' 
-      ? `Card ending in ${cardDetails.number.replace(/\s+/g, '').slice(-4) || '4242'}`
-      : paymentMethod === 'upi' 
-        ? `UPI (${upiId || 'Direct UPI'})` 
-        : 'Cash on Delivery';
 
     // 1. Sync Address and Default Preferences
     try {
@@ -763,6 +796,7 @@ export function CheckoutDetails() {
 
     const userEmail = currentUser?.email || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).email : '');
     const generatedSubId = `SUB-${Math.floor(100 + Math.random() * 900)}`;
+    const effectiveRefCode = appliedReferral ? appliedReferral.code : (referralCodeInput.trim() ? referralCodeInput.trim().toUpperCase() : '');
 
     // 2. Persist subscription in backend if possible
     try {
@@ -780,7 +814,12 @@ export function CheckoutDetails() {
         slot: selectedSlot,
         slotLabel: getMealSlotSummary(),
         totalPrice: finalTotal,
-        paymentMethod: paymentLabel,
+        paymentMethod: paymentInfo.paymentLabel,
+        paymentStatus: paymentInfo.paymentStatus || 'Paid',
+        razorpayOrderId: paymentInfo.razorpayOrderId || '',
+        razorpayPaymentId: paymentInfo.razorpayPaymentId || '',
+        razorpaySignature: paymentInfo.razorpaySignature || '',
+        referralCode: appliedReferral ? appliedReferral.code : (referralCodeInput.trim() ? referralCodeInput.trim().toUpperCase() : ''),
         status: 'Active' as const,
         startDate: startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         endDate: endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
@@ -864,7 +903,10 @@ export function CheckoutDetails() {
       slot: selectedSlot,
       slotLabel: getMealSlotSummary(),
       totalPrice: `₹${finalTotal}`,
-      paymentMethod: paymentLabel,
+      paymentMethod: paymentInfo.paymentLabel,
+      paymentStatus: paymentInfo.paymentStatus || 'Paid',
+      razorpayPaymentId: paymentInfo.razorpayPaymentId || '',
+      referralCode: effectiveRefCode,
       status: 'Active',
       nextDelivery: 'Tomorrow, 08:00 AM - 09:00 AM',
       startDate: startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
@@ -903,6 +945,109 @@ export function CheckoutDetails() {
       toast.success('Subscription confirmed! Welcome to SHIFT24.');
       navigate('/profile');
     }, 600);
+  };
+
+  const handleCompleteOrder = async () => {
+    const effectiveAddress = (formData.address || formatFullAddress(addressFields)).trim();
+
+    if (!formData.name.trim() || !formData.phone.trim() || !effectiveAddress) {
+      toast.error('Please fill in your full name, phone number, and delivery address.');
+      return;
+    }
+
+    // Cash on Delivery
+    if (paymentMethod === 'cod') {
+      setIsProcessing(true);
+      await finalizeSubscriptionOrder({
+        paymentLabel: 'Cash on Delivery',
+        paymentStatus: 'Cash on Delivery'
+      });
+      return;
+    }
+
+    // Razorpay Online Gateway (Card or UPI)
+    setIsProcessing(true);
+    const userEmail = currentUser?.email || (localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).email : '');
+
+    try {
+      const amountInPaise = Math.round(finalTotal * 100);
+      const orderRes = await createRazorpayOrder({
+        amount: amountInPaise,
+        currency: 'INR',
+        receipt: `sub_${Date.now()}`.slice(0, 40),
+        notes: {
+          planTitle: plan.title,
+          durationDays,
+          mealsPerDay,
+          customerName: formData.name.trim(),
+          customerPhone: formData.phone.trim(),
+          referralCode: appliedReferral ? appliedReferral.code : ''
+        }
+      });
+
+      if (!orderRes.success && !orderRes.order_id && !orderRes.orderId) {
+        throw new Error(orderRes.message || 'Unable to create Razorpay payment order');
+      }
+
+      const activeOrderId = orderRes.order_id || orderRes.orderId;
+      const razorpayKey = orderRes.key_id || orderRes.keyId || (import.meta as any).env?.VITE_RAZORPAY_KEY_ID;
+
+      await openRazorpayCheckout({
+        key: razorpayKey,
+        amount: orderRes.amount || amountInPaise,
+        currency: orderRes.currency || 'INR',
+        orderId: activeOrderId,
+        name: 'SHIFT24 Meal Prep',
+        description: `${plan.title} Plan (${durationDays === 1 ? '1-Day Trial' : `${durationDays} Days`})`,
+        image: '/icons/icon-192.png',
+        customerName: formData.name.trim(),
+        customerEmail: userEmail || '',
+        customerPhone: formData.phone.trim(),
+        isMock: orderRes.isMock,
+        onSuccess: async (rzpResponse) => {
+          try {
+            const verifyRes = await verifyRazorpayPayment({
+              razorpay_order_id: rzpResponse.razorpay_order_id,
+              razorpay_payment_id: rzpResponse.razorpay_payment_id,
+              razorpay_signature: rzpResponse.razorpay_signature
+            });
+
+            if (!verifyRes.success || !verifyRes.verified) {
+              toast.error(verifyRes.message || 'Payment signature verification failed.');
+              setIsProcessing(false);
+              return;
+            }
+
+            const paymentLabel = `Razorpay Online (${rzpResponse.razorpay_payment_id.slice(-6)})`;
+
+            await finalizeSubscriptionOrder({
+              paymentLabel,
+              paymentStatus: 'Paid',
+              razorpayOrderId: rzpResponse.razorpay_order_id,
+              razorpayPaymentId: rzpResponse.razorpay_payment_id,
+              razorpaySignature: rzpResponse.razorpay_signature
+            });
+          } catch (finalizeErr: any) {
+            console.error('Finalize subscription error:', finalizeErr);
+            toast.error(finalizeErr.message || 'Error completing subscription setup.');
+            setIsProcessing(false);
+          }
+        },
+        onFailure: (err) => {
+          setIsProcessing(false);
+          const desc = err?.error?.description || 'Payment was declined or cancelled.';
+          toast.error(`Payment failed: ${desc}`);
+        },
+        onDismiss: () => {
+          setIsProcessing(false);
+          toast('Payment window closed. You can complete your order whenever you are ready.', { icon: 'ℹ️' });
+        }
+      });
+    } catch (paymentErr: any) {
+      console.error('Razorpay initialization error:', paymentErr);
+      setIsProcessing(false);
+      toast.error(paymentErr.message || 'Failed to initialize Razorpay checkout.');
+    }
   };
 
   return (
@@ -1691,7 +1836,75 @@ export function CheckoutDetails() {
 
                 <hr className="border-slate-100 my-6 sm:my-8" />
 
-                {/* Payment Methods Section */}
+                {/* Referral Code Section */}
+                <div className="bg-gradient-to-r from-emerald-50/80 to-teal-50/60 p-4 sm:p-5 rounded-2xl border border-emerald-100 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Gift className="w-4 h-4 text-emerald-600" />
+                      <span className="text-sm font-bold text-slate-800">Have a Referral Code?</span>
+                    </div>
+                    {durationDays >= 28 && (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/90 px-2.5 py-0.5 rounded-full">
+                        Monthly Plan • ₹500 Referrer Reward
+                      </span>
+                    )}
+                  </div>
+
+                  {appliedReferral ? (
+                    <div className="flex items-center justify-between bg-white px-3.5 py-2.5 rounded-xl border border-emerald-200 shadow-xs">
+                      <div className="flex items-center gap-2.5">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-emerald-900">
+                            Referral Applied: <span className="font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">{appliedReferral.code}</span>
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            Referred by {appliedReferral.referrerName}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppliedReferral(null);
+                          setReferralCodeInput('');
+                          setReferralError('');
+                        }}
+                        className="text-xs text-slate-400 hover:text-rose-500 font-semibold px-2 py-1 cursor-pointer transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="e.g. SHIFT-XXXX"
+                          value={referralCodeInput}
+                          onChange={(e) => {
+                            setReferralCodeInput(e.target.value.toUpperCase());
+                            setReferralError('');
+                          }}
+                          className="flex-1 uppercase font-mono text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          disabled={isValidatingReferral || !referralCodeInput.trim()}
+                          onClick={handleApplyReferralCode}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          {isValidatingReferral ? 'Checking...' : 'Apply Code'}
+                        </button>
+                      </div>
+                      {referralError && (
+                        <p className="text-[11px] text-rose-500 font-medium">{referralError}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <hr className="border-slate-100 my-6 sm:my-8" />
                 <div className="space-y-4 sm:space-y-6">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Payment Method</h2>
@@ -1700,103 +1913,106 @@ export function CheckoutDetails() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
-                    <label className={`flex sm:flex-col items-center justify-start sm:justify-center p-3 sm:p-4 border-2 rounded-2xl cursor-pointer transition-all gap-3 sm:gap-0 ${
-                      paymentMethod === 'card' ? 'border-emerald-500 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-500/20' : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                    {/* Pay Online (Razorpay) */}
+                    <label className={`relative flex flex-col p-4 sm:p-5 border-2 rounded-2xl cursor-pointer transition-all ${
+                      paymentMethod === 'online' 
+                        ? 'border-emerald-500 bg-emerald-50/50 shadow-sm ring-2 ring-emerald-500/20' 
+                        : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
                     }`}>
-                      <input type="radio" name="paymentMethod" checked={paymentMethod === 'card'} onChange={() => setPaymentMethod('card')} className="sr-only" />
-                      <CreditCard className={`w-5 h-5 sm:w-6 sm:h-6 sm:mb-2 shrink-0 ${paymentMethod === 'card' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                      <span className={`text-xs sm:text-sm font-bold ${paymentMethod === 'card' ? 'text-emerald-700' : 'text-slate-700'}`}>Credit / Debit Card</span>
+                      <input 
+                        type="radio" 
+                        name="paymentMethod" 
+                        checked={paymentMethod === 'online'} 
+                        onChange={() => setPaymentMethod('online')} 
+                        className="sr-only" 
+                      />
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                            paymentMethod === 'online' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            <CreditCard className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <span className="text-sm sm:text-base font-bold text-slate-900 block">Pay Online</span>
+                            <span className="text-xs text-slate-500 font-medium">UPI, Cards, Netbanking</span>
+                          </div>
+                        </div>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          paymentMethod === 'online' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
+                        }`}>
+                          {paymentMethod === 'online' && <div className="w-2 h-2 rounded-full bg-white" />}
+                        </div>
+                      </div>
+                      
+                      <div className="mt-2.5 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
+                        <span className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 shadow-2xs">Google Pay</span>
+                        <span className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 shadow-2xs">PhonePe</span>
+                        <span className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 shadow-2xs">Paytm</span>
+                        <span className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 shadow-2xs">Cards</span>
+                        <span className="px-2 py-0.5 bg-white border border-slate-200 rounded text-[11px] font-semibold text-slate-700 shadow-2xs">Netbanking</span>
+                      </div>
                     </label>
 
-                    <label className={`flex sm:flex-col items-center justify-start sm:justify-center p-3 sm:p-4 border-2 rounded-2xl cursor-pointer transition-all gap-3 sm:gap-0 ${
-                      paymentMethod === 'upi' ? 'border-emerald-500 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-500/20' : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
+                    {/* Cash on Delivery (COD) */}
+                    <label className={`relative flex flex-col p-4 sm:p-5 border-2 rounded-2xl cursor-pointer transition-all ${
+                      paymentMethod === 'cod' 
+                        ? 'border-emerald-500 bg-emerald-50/50 shadow-sm ring-2 ring-emerald-500/20' 
+                        : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
                     }`}>
-                      <input type="radio" name="paymentMethod" checked={paymentMethod === 'upi'} onChange={() => setPaymentMethod('upi')} className="sr-only" />
-                      <Smartphone className={`w-5 h-5 sm:w-6 sm:h-6 sm:mb-2 shrink-0 ${paymentMethod === 'upi' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                      <span className={`text-xs sm:text-sm font-bold ${paymentMethod === 'upi' ? 'text-emerald-700' : 'text-slate-700'}`}>UPI / QR Code</span>
-                    </label>
+                      <input 
+                        type="radio" 
+                        name="paymentMethod" 
+                        checked={paymentMethod === 'cod'} 
+                        onChange={() => setPaymentMethod('cod')} 
+                        className="sr-only" 
+                      />
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                            paymentMethod === 'cod' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            <Banknote className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <span className="text-sm sm:text-base font-bold text-slate-900 block">Cash on Delivery</span>
+                            <span className="text-xs text-slate-500 font-medium">Pay on 1st meal delivery</span>
+                          </div>
+                        </div>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          paymentMethod === 'cod' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-300'
+                        }`}>
+                          {paymentMethod === 'cod' && <div className="w-2 h-2 rounded-full bg-white" />}
+                        </div>
+                      </div>
 
-                    <label className={`flex sm:flex-col items-center justify-start sm:justify-center p-3 sm:p-4 border-2 rounded-2xl cursor-pointer transition-all gap-3 sm:gap-0 ${
-                      paymentMethod === 'cod' ? 'border-emerald-500 bg-emerald-50/60 shadow-sm ring-2 ring-emerald-500/20' : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-slate-50'
-                    }`}>
-                      <input type="radio" name="paymentMethod" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} className="sr-only" />
-                      <Banknote className={`w-5 h-5 sm:w-6 sm:h-6 sm:mb-2 shrink-0 ${paymentMethod === 'cod' ? 'text-emerald-600' : 'text-slate-400'}`} />
-                      <span className={`text-xs sm:text-sm font-bold text-center ${paymentMethod === 'cod' ? 'text-emerald-700' : 'text-slate-700'}`}>Cash on Delivery</span>
+                      <div className="mt-2.5 pt-2.5 border-t border-slate-200/70 flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-600 font-medium">Cash or UPI QR upon first delivery</span>
+                      </div>
                     </label>
                   </div>
 
-                  {paymentMethod === 'card' && (
-                    <div className="bg-slate-50/90 p-4 sm:p-6 rounded-2xl border border-slate-200 space-y-3 sm:space-y-4 animate-in fade-in duration-300">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Card Number</label>
-                        <input 
-                          type="text" 
-                          placeholder="4532 •••• •••• 8921"
-                          value={cardDetails.number}
-                          onChange={e => setCardDetails({...cardDetails, number: e.target.value})}
-                          className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Expiry Date</label>
-                          <input 
-                            type="text" 
-                            placeholder="MM/YY"
-                            value={cardDetails.expiry}
-                            onChange={e => setCardDetails({...cardDetails, expiry: e.target.value})}
-                            className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">CVV / CVC</label>
-                          <input 
-                            type="password" 
-                            maxLength={4}
-                            placeholder="•••"
-                            value={cardDetails.cvc}
-                            onChange={e => setCardDetails({...cardDetails, cvc: e.target.value})}
-                            className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
-                          />
-                        </div>
-                      </div>
-                      <div className="pt-1 flex items-center gap-2 text-xs text-slate-500">
-                        <Lock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                        <span>Card information is securely processed via 256-bit encryption.</span>
+                  {/* Informational card based on selection */}
+                  {paymentMethod === 'online' ? (
+                    <div className="bg-emerald-50/90 p-4 rounded-2xl border border-emerald-200 flex items-start gap-3 animate-in fade-in duration-300">
+                      <Lock className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                      <div className="text-xs text-emerald-950 leading-relaxed">
+                        <p className="font-bold text-emerald-900">Secure Online Checkout via Razorpay</p>
+                        <p className="text-emerald-800 mt-0.5">
+                          Clicking "Pay with Razorpay" will open the secure gateway where you can pay using Google Pay, PhonePe, Paytm, Debit/Credit Card, or Netbanking. Protected by 256-bit encryption.
+                        </p>
                       </div>
                     </div>
-                  )}
-
-                  {paymentMethod === 'upi' && (
-                    <div className="bg-slate-50/90 p-4 sm:p-6 rounded-2xl border border-slate-200 space-y-3 sm:space-y-4 animate-in fade-in duration-300">
-                      <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">Fast UPI Transfer</p>
-                      <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                        {['Google Pay', 'PhonePe', 'Paytm', 'BHIM UPI'].map((app) => (
-                          <span key={app} className="px-2.5 sm:px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold shadow-xs">
-                            {app}
-                          </span>
-                        ))}
+                  ) : (
+                    <div className="bg-amber-50/90 p-4 rounded-2xl border border-amber-200 flex items-start gap-3 animate-in fade-in duration-300">
+                      <Banknote className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-xs text-amber-950 leading-relaxed">
+                        <p className="font-bold text-amber-900">Pay on Delivery</p>
+                        <p className="text-amber-800 mt-0.5">
+                          Pay ₹{finalTotal} cash or scan the courier's UPI QR code when our delivery partner hands over your first meal box tomorrow.
+                        </p>
                       </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Enter Virtual Payment Address (VPA)</label>
-                        <input 
-                          type="text" 
-                          placeholder="yourname@okaxis"
-                          value={upiId}
-                          onChange={e => setUpiId(e.target.value)}
-                          className="w-full px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-xs sm:text-sm"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'cod' && (
-                    <div className="bg-emerald-50 p-4 sm:p-5 rounded-2xl border border-emerald-100 space-y-1.5 text-center animate-in fade-in duration-300">
-                      <p className="text-emerald-900 font-bold text-sm">Pay on First Meal Delivery</p>
-                      <p className="text-emerald-700 text-xs leading-relaxed">
-                        Pay ₹{finalTotal} cash or via UPI QR code when our delivery courier hands over your initial meal box.
-                      </p>
                     </div>
                   )}
                 </div>
@@ -1969,11 +2185,11 @@ export function CheckoutDetails() {
             >
               {isProcessing ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" /> Processing Secure Payment...
+                  <Loader2 className="w-5 h-5 animate-spin" /> {paymentMethod === 'cod' ? 'Confirming Subscription...' : 'Connecting to Razorpay...'}
                 </>
               ) : (
                 <>
-                  Complete Subscription • ₹{finalTotal}
+                  {paymentMethod === 'cod' ? `Complete Subscription (COD) • ₹${finalTotal}` : `Pay with Razorpay • ₹${finalTotal}`}
                 </>
               )}
             </button>

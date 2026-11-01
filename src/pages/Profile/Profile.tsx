@@ -1,7 +1,7 @@
 import { isDateSkipped, isMealSkipped, getAdminSubscriptions, saveAdminSubscriptions } from '../Admin/adminData';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check, Pause, Play, Clock, X, AlertTriangle, Compass, Plus, Home, Briefcase, Building, CheckCircle2, Mail, KeyRound, Coffee, Sun, Moon, Utensils, CalendarX, Sparkles } from 'lucide-react';
+import { Package, Repeat, MapPin, Shield, FileText, RefreshCcw, HelpCircle, Trash2, LogOut, ChevronRight, ChevronLeft, Calendar as CalendarIcon, Settings, Edit2, Check, Pause, Play, Clock, X, AlertTriangle, Compass, Plus, Home, Briefcase, Building, CheckCircle2, Mail, KeyRound, Coffee, Sun, Moon, Utensils, CalendarX, Sparkles, Gift, Copy, Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { showConfirmToast } from '../../utils/confirmToast';
 import { commonIngredients } from '../../data/mockData';
@@ -9,6 +9,7 @@ import { jsPDF } from 'jspdf';
 import { toPng } from 'html-to-image';
 import { LocationMapPicker, GeocodedAddress } from '../../components/ui/LocationMapPicker';
 import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
+import { fetchMyReferrals } from '../../services/api';
 
 export function ProfilePage() {
   const navigate = useNavigate();
@@ -227,6 +228,45 @@ export function ProfilePage() {
   const [expandedSub, setExpandedSub] = useState<string | null>(null);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [viewingInvoice, setViewingInvoice] = useState<string | null>(null);
+
+  // Referrals Program State
+  const [referralData, setReferralData] = useState<{
+    referralCode: string;
+    rewardPerMonthlyPlan: number;
+    totalReferred: number;
+    monthlyReferralsCount: number;
+    pendingCount: number;
+    eligibleCount: number;
+    paidCount: number;
+    totalEarned: number;
+    pendingEarnings: number;
+    referrals: any[];
+  } | null>(null);
+  const [isLoadingReferrals, setIsLoadingReferrals] = useState(false);
+  const [hasCopiedCode, setHasCopiedCode] = useState(false);
+  const [hasCopiedLink, setHasCopiedLink] = useState(false);
+
+  const loadReferrals = async () => {
+    const userEmail = userProfile.email || loggedInUser?.email || localStorage.getItem('userEmail');
+    if (!userEmail) return;
+    setIsLoadingReferrals(true);
+    try {
+      const res = await fetchMyReferrals(userEmail);
+      if (res && res.success && res.data) {
+        setReferralData(res.data);
+      }
+    } catch (e) {
+      console.warn('Referrals load error:', e);
+    } finally {
+      setIsLoadingReferrals(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'referrals') {
+      loadReferrals();
+    }
+  }, [activeTab, userProfile.email]);
 
   const [addresses, setAddresses] = useState(() => {
     let initialList: any[] = [];
@@ -1732,6 +1772,7 @@ export function ProfilePage() {
 
   const tabs = [
     { id: 'subscriptions', label: 'Subscriptions', icon: Repeat },
+    { id: 'referrals', label: 'Refer & Earn ₹500', icon: Gift },
     { id: 'orders', label: 'Order History', icon: Package },
     { id: 'addresses', label: 'Saved Addresses', icon: MapPin },
     { id: 'support', label: 'Help & Support', icon: HelpCircle },
@@ -2161,6 +2202,247 @@ export function ProfilePage() {
                         })}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Referrals Tab */}
+                {activeTab === 'referrals' && (
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
+                    {/* Header */}
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h2 className="text-2xl font-bold text-slate-900 hidden lg:block">Refer & Earn ₹500</h2>
+                        <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                          Invite friends to subscribe to any 30-Day Monthly Plan and get ₹500 for each completed subscription!
+                        </p>
+                      </div>
+                      <button
+                        onClick={loadReferrals}
+                        className="p-2 text-slate-400 hover:text-emerald-600 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                        title="Refresh Referrals"
+                      >
+                        <RefreshCcw className={`w-4 h-4 ${isLoadingReferrals ? 'animate-spin' : ''}`} />
+                      </button>
+                    </div>
+
+                    {/* Hero Promotion Banner */}
+                    <div className="bg-gradient-to-br from-emerald-600 via-teal-700 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-lg relative overflow-hidden">
+                      <div className="absolute right-0 top-0 w-80 h-80 bg-white/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+                      <div className="relative z-10 max-w-2xl space-y-4">
+                        <div className="inline-flex items-center gap-2 bg-emerald-400/20 border border-emerald-300/30 px-3 py-1 rounded-full text-emerald-200 text-xs font-bold">
+                          <Gift className="w-3.5 h-3.5" /> ₹500 Per Completed Monthly Plan
+                        </div>
+                        <h3 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                          Earn Real Cash by Sharing Healthy Living
+                        </h3>
+                        <p className="text-xs sm:text-sm text-emerald-100 leading-relaxed">
+                          Give your friends access to clean, chef-prepared meal plans. When a friend signs up using your code and completes their 30-Day Monthly Plan, our team verifies and sends ₹500 directly to you via GPay or UPI!
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Share & Code Box */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Referral Code */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-2">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                            Your Unique Referral Code
+                          </span>
+                          <div className="flex items-center justify-between gap-3 bg-white px-4 py-2.5 rounded-lg border border-slate-200">
+                            <span className="font-mono text-base sm:text-lg font-black text-emerald-700 tracking-wider">
+                              {referralData?.referralCode || 'GENERATING...'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (referralData?.referralCode) {
+                                  navigator.clipboard.writeText(referralData.referralCode);
+                                  setHasCopiedCode(true);
+                                  toast.success('Referral code copied to clipboard!');
+                                  setTimeout(() => setHasCopiedCode(false), 2000);
+                                }
+                              }}
+                              className="text-xs font-bold text-slate-700 hover:text-emerald-600 flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-slate-100 transition-colors cursor-pointer"
+                            >
+                              {hasCopiedCode ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                              <span>{hasCopiedCode ? 'Copied' : 'Copy'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Referral Link */}
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/80 space-y-2">
+                          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                            1-Click Invite Link
+                          </span>
+                          <div className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-lg border border-slate-200">
+                            <span className="text-xs font-mono text-slate-600 truncate max-w-[220px]">
+                              {typeof window !== 'undefined' && referralData?.referralCode
+                                ? `${window.location.origin}/subscribe?ref=${referralData.referralCode}`
+                                : 'Loading link...'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (referralData?.referralCode) {
+                                  const link = `${window.location.origin}/subscribe?ref=${referralData.referralCode}`;
+                                  navigator.clipboard.writeText(link);
+                                  setHasCopiedLink(true);
+                                  toast.success('Referral invite link copied!');
+                                  setTimeout(() => setHasCopiedLink(false), 2000);
+                                }
+                              }}
+                              className="text-xs font-bold text-slate-700 hover:text-emerald-600 flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
+                            >
+                              {hasCopiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                              <span>{hasCopiedLink ? 'Copied' : 'Copy Link'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* WhatsApp Share Button */}
+                      <div className="pt-2 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs text-slate-500">
+                          Share directly to WhatsApp groups, friends, and family with one tap.
+                        </p>
+                        <a
+                          href={
+                            referralData?.referralCode
+                              ? `https://wa.me/?text=${encodeURIComponent(
+                                  `Hey! I'm enjoying chef-prepared healthy meals delivered fresh daily by Shift24 in Kochi. Subscribe to any 30-Day Monthly Meal Plan using my referral link: ${window.location.origin}/subscribe?ref=${referralData.referralCode} or code: ${referralData.referralCode}!`
+                                )}`
+                              : '#'
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
+                        >
+                          <Share2 className="w-4 h-4" /> Share on WhatsApp
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Referred</span>
+                        <span className="text-xl sm:text-2xl font-black text-slate-900 mt-1 block">
+                          {referralData?.totalReferred || 0}
+                        </span>
+                        <span className="text-[10px] text-slate-500">Friends invited</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Monthly Plans</span>
+                        <span className="text-xl sm:text-2xl font-black text-teal-600 mt-1 block">
+                          {referralData?.monthlyReferralsCount || 0}
+                        </span>
+                        <span className="text-[10px] text-slate-500">Eligible for ₹500</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200">
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">In Progress</span>
+                        <span className="text-xl sm:text-2xl font-black text-amber-600 mt-1 block">
+                          {referralData?.pendingCount || 0}
+                        </span>
+                        <span className="text-[10px] text-slate-500">Active subscriptions</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-emerald-200 bg-emerald-50/30">
+                        <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">Total Earned</span>
+                        <span className="text-xl sm:text-2xl font-black text-emerald-600 mt-1 block">
+                          ₹{referralData?.totalEarned || 0}
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-semibold">Cash paid out</span>
+                      </div>
+                    </div>
+
+                    {/* Referred Friends Table */}
+                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                      <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+                        <div>
+                          <h3 className="font-bold text-slate-900 text-sm sm:text-base">Referred Friends & Rewards</h3>
+                          <p className="text-xs text-slate-500">Track your friends' subscription and payout status</p>
+                        </div>
+                        <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full">
+                          {referralData?.referrals?.length || 0} Records
+                        </span>
+                      </div>
+
+                      {referralData?.referrals && referralData.referrals.length > 0 ? (
+                        <div className="divide-y divide-slate-100">
+                          {referralData.referrals.map((r: any) => (
+                            <div key={r.referralId || r._id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-900 text-sm">{r.refereeName}</span>
+                                  <span className="text-[11px] text-slate-400">({r.subId})</span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                  <span className="font-semibold text-slate-700">{r.planTitle}</span>
+                                  <span>•</span>
+                                  <span>{r.duration}</span>
+                                  {r.isMonthlyPlan ? (
+                                    <span className="text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200 px-2 py-0.5 rounded-full">
+                                      Monthly Plan
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-medium bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                                      Trial / Short Plan
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-3 self-start sm:self-center">
+                                {r.payoutStatus === 'Paid' ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-xs font-bold">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> ₹500 Paid Out
+                                  </span>
+                                ) : r.payoutStatus === 'Eligible' ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-bold">
+                                    <Clock className="w-3.5 h-3.5 text-amber-600" /> Plan Completed • Awaiting Payout
+                                  </span>
+                                ) : r.isMonthlyPlan ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full text-xs font-medium">
+                                    <Clock className="w-3.5 h-3.5 text-blue-600" /> Ongoing (₹500 on completion)
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400">
+                                    Subscribed ({r.duration})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="p-8 text-center space-y-3">
+                          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto">
+                            <Gift className="w-6 h-6" />
+                          </div>
+                          <h4 className="font-bold text-slate-800 text-sm">No Referrals Yet</h4>
+                          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                            Share your referral code with friends and family. Once they complete a monthly plan, you'll receive ₹500!
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (referralData?.referralCode) {
+                                const link = `${window.location.origin}/subscribe?ref=${referralData.referralCode}`;
+                                navigator.clipboard.writeText(link);
+                                toast.success('Invite link copied! Share with your friends.');
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition-colors cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Copy Invite Link
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

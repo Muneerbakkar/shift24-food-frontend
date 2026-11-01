@@ -774,5 +774,136 @@ export async function apiUpdateKitchenSettings(data: any) {
   }
 }
 
+// -------------------------------------------------------------
+// Razorpay Payment Gateway API
+// -------------------------------------------------------------
+export async function getRazorpayConfig(): Promise<{ success: boolean; keyId: string; key_id?: string; isConfigured: boolean }> {
+  try {
+    const res = await fetch(`${API_BASE}/razorpay-key`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) return await res.json();
+    const fallbackRes = await fetch(`${API_BASE}/payment/razorpay/key`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await fallbackRes.json();
+  } catch (err: any) {
+    return { 
+      success: false, 
+      keyId: (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || '', 
+      key_id: (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || '', 
+      isConfigured: false 
+    };
+  }
+}
+
+export async function createRazorpayOrder(data: {
+  amount: number;
+  currency?: string;
+  receipt?: string;
+  notes?: Record<string, any>;
+}) {
+  const res = await fetch(`${API_BASE}/create-order`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders()
+    },
+    body: JSON.stringify(data)
+  });
+  return await res.json();
+}
+
+export async function verifyRazorpayPayment(data: {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}) {
+  const res = await fetch(`${API_BASE}/verify-payment`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders()
+    },
+    body: JSON.stringify(data)
+  });
+  return await res.json();
+}
+
+// -------------------------------------------------------------
+// Referral Program API (Earn ₹500 for Monthly Plans)
+// -------------------------------------------------------------
+
+export async function fetchMyReferrals(email?: string) {
+  try {
+    const url = email 
+      ? `${API_BASE}/referrals/my-referrals?email=${encodeURIComponent(email)}` 
+      : `${API_BASE}/referrals/my-referrals`;
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+export async function validateReferralCode(code: string, userEmail?: string) {
+  try {
+    const res = await fetch(`${API_BASE}/referrals/validate-code`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({ code, userEmail })
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, valid: false, message: err.message };
+  }
+}
+
+export async function fetchAdminReferrals(status?: string, search?: string) {
+  try {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (search) params.append('search', search);
+
+    const res = await fetch(`${API_BASE}/referrals/admin/all?${params.toString()}`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err.message, data: [], stats: {} };
+  }
+}
+
+export async function markReferralPaid(referralId: string, data: { paymentReference: string; adminNotes?: string }) {
+  try {
+    const res = await fetch(`${API_BASE}/referrals/admin/${referralId}/payout`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+
+
 
 

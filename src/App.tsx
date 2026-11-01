@@ -36,6 +36,7 @@ import { AdminExpenses } from './pages/Admin/AdminExpenses';
 import { AdminSales } from './pages/Admin/AdminSales';
 import { AdminUsers } from './pages/Admin/AdminUsers';
 import { AdminSettings } from './pages/Admin/AdminSettings';
+import { AdminReferrals } from './pages/Admin/AdminReferrals';
 
 // Driver Portal Components
 import { DriverLoginPage } from './pages/Driver/DriverLoginPage';
@@ -89,6 +90,7 @@ export default function App() {
           <Route path="/admin/kitchen" element={<AdminLayout><AdminKitchen /></AdminLayout>} />
           <Route path="/admin/menu" element={<AdminLayout><AdminMenu /></AdminLayout>} />
           <Route path="/admin/customers" element={<AdminLayout><AdminCustomers /></AdminLayout>} />
+          <Route path="/admin/referrals" element={<AdminLayout><AdminReferrals /></AdminLayout>} />
           <Route path="/admin/purchases" element={<AdminLayout><AdminPurchases /></AdminLayout>} />
           <Route path="/admin/expenses" element={<AdminLayout><AdminExpenses /></AdminLayout>} />
           <Route path="/admin/users" element={<AdminLayout><AdminUsers /></AdminLayout>} />

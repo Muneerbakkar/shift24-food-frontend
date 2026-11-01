@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ChevronLeft, CreditCard, Lock, Plus, Smartphone, Banknote, Calendar, Clock } from 'lucide-react';
+import { ChevronLeft, CreditCard, Lock, Plus, Smartphone, Banknote, Calendar, Clock, ShieldCheck, Check } from 'lucide-react';
+import { createRazorpayOrder, verifyRazorpayPayment } from '../../services/api';
+import { openRazorpayCheckout } from '../../utils/razorpay';
 
 export function CartCheckout() {
   const navigate = useNavigate();
@@ -158,17 +160,92 @@ export function CartCheckout() {
   const taxes = Math.round(subtotal * 0.05); // 5% GST estimate
   const total = subtotal + delivery + taxes;
 
-  const handlePlaceOrder = (e: React.FormEvent) => {
+  const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliverySlot) {
       toast.error("Please select a delivery schedule (Date and Time Slot).");
       return;
     }
+
+    if (paymentMethod === 'cod') {
+      setIsProcessing(true);
+      setTimeout(() => {
+        setIsProcessing(false);
+        toast.success("Order placed successfully with Cash on Delivery! Thank you for shopping with Shift24.");
+        localStorage.removeItem('cart');
+        navigate('/');
+      }, 1000);
+      return;
+    }
+
+    // Razorpay Online Gateway (Card or UPI)
     setIsProcessing(true);
-    setTimeout(() => {
-      toast.success("Order placed successfully! Thank you for shopping with Shift24.");
-      navigate('/');
-    }, 1500);
+    try {
+      const amountInPaise = Math.round(total * 100);
+      const orderRes = await createRazorpayOrder({
+        amount: amountInPaise,
+        currency: 'INR',
+        receipt: `cart_${Date.now()}`.slice(0, 40),
+        notes: {
+          itemsCount: cartItems.length,
+          contactEmail: contactInfo.email,
+          contactPhone: contactInfo.phone,
+          deliverySlot: `${deliveryDate?.toDateString()} - ${deliverySlot}`
+        }
+      });
+
+      if (!orderRes.success && !orderRes.order_id && !orderRes.orderId) {
+        throw new Error(orderRes.message || 'Unable to initiate payment');
+      }
+
+      const activeOrderId = orderRes.order_id || orderRes.orderId;
+      const razorpayKey = orderRes.key_id || orderRes.keyId || (import.meta as any).env?.VITE_RAZORPAY_KEY_ID;
+
+      await openRazorpayCheckout({
+        key: razorpayKey,
+        amount: orderRes.amount || amountInPaise,
+        currency: orderRes.currency || 'INR',
+        orderId: activeOrderId,
+        name: 'SHIFT24',
+        description: `Order (${cartItems.length} items)`,
+        image: '/icons/icon-192.png',
+        customerName: contactInfo.email.split('@')[0] || 'Customer',
+        customerEmail: contactInfo.email,
+        customerPhone: contactInfo.phone,
+        preferredMethod: paymentMethod === 'card' ? 'card' : 'upi',
+        isMock: orderRes.isMock,
+        onSuccess: async (rzpRes) => {
+          try {
+            const verifyRes = await verifyRazorpayPayment({
+              razorpay_order_id: rzpRes.razorpay_order_id,
+              razorpay_payment_id: rzpRes.razorpay_payment_id,
+              razorpay_signature: rzpRes.razorpay_signature
+            });
+            if (!verifyRes.success || !verifyRes.verified) {
+              throw new Error(verifyRes.message || 'Payment verification failed');
+            }
+            setIsProcessing(false);
+            toast.success("Payment verified! Order placed successfully. Thank you for shopping with Shift24.");
+            localStorage.removeItem('cart');
+            navigate('/');
+          } catch (err: any) {
+            setIsProcessing(false);
+            toast.error(err.message || 'Payment verification failed');
+          }
+        },
+        onFailure: (err) => {
+          setIsProcessing(false);
+          toast.error(err?.error?.description || 'Payment was declined or cancelled.');
+        },
+        onDismiss: () => {
+          setIsProcessing(false);
+          toast('Payment window closed. Your items are still in cart.', { icon: 'ℹ️' });
+        }
+      });
+    } catch (err: any) {
+      setIsProcessing(false);
+      toast.error(err.message || 'Failed to initialize payment gateway.');
+    }
   };
 
   return (
@@ -347,55 +424,86 @@ export function CartCheckout() {
 
             {/* Payment Info */}
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-              <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center justify-between">
-                Payment Method
-              </h2>
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-slate-900">Payment Method</h2>
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-800 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> Razorpay Secured
+                </span>
+              </div>
               
               <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <label className={`flex-1 flex flex-col items-center justify-center p-4 border-2 rounded-2xl cursor-pointer transition-colors ${paymentMethod === 'card' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-emerald-200'}`}>
                   <input type="radio" name="paymentMethod" checked={paymentMethod === 'card'} onChange={() => setPaymentMethod('card')} className="sr-only" />
-                  <CreditCard className={`w-6 h-6 mb-2 ${paymentMethod === 'card' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <CreditCard className={`w-6 h-6 mb-1 ${paymentMethod === 'card' ? 'text-emerald-600' : 'text-slate-400'}`} />
                   <span className={`text-sm font-bold ${paymentMethod === 'card' ? 'text-emerald-700' : 'text-slate-600'}`}>Card</span>
+                  <span className="text-[10px] text-slate-400 font-medium">via Razorpay</span>
                 </label>
                 <label className={`flex-1 flex flex-col items-center justify-center p-4 border-2 rounded-2xl cursor-pointer transition-colors ${paymentMethod === 'upi' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-emerald-200'}`}>
                   <input type="radio" name="paymentMethod" checked={paymentMethod === 'upi'} onChange={() => setPaymentMethod('upi')} className="sr-only" />
-                  <Smartphone className={`w-6 h-6 mb-2 ${paymentMethod === 'upi' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <Smartphone className={`w-6 h-6 mb-1 ${paymentMethod === 'upi' ? 'text-emerald-600' : 'text-slate-400'}`} />
                   <span className={`text-sm font-bold ${paymentMethod === 'upi' ? 'text-emerald-700' : 'text-slate-600'}`}>UPI</span>
+                  <span className="text-[10px] text-slate-400 font-medium">via Razorpay</span>
                 </label>
                 <label className={`flex-1 flex flex-col items-center justify-center p-4 border-2 rounded-2xl cursor-pointer transition-colors ${paymentMethod === 'cod' ? 'border-emerald-500 bg-emerald-50/30' : 'border-slate-100 hover:border-emerald-200'}`}>
                   <input type="radio" name="paymentMethod" checked={paymentMethod === 'cod'} onChange={() => setPaymentMethod('cod')} className="sr-only" />
-                  <Banknote className={`w-6 h-6 mb-2 ${paymentMethod === 'cod' ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <Banknote className={`w-6 h-6 mb-1 ${paymentMethod === 'cod' ? 'text-emerald-600' : 'text-slate-400'}`} />
                   <span className={`text-sm font-bold ${paymentMethod === 'cod' ? 'text-emerald-700' : 'text-slate-600'}`}>Cash</span>
+                  <span className="text-[10px] text-slate-400 font-medium">on delivery</span>
                 </label>
               </div>
 
               {paymentMethod === 'card' && (
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Card Number</label>
-                    <input type="text" required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-white" placeholder="0000 0000 0000 0000" />
+                <div className="bg-slate-900 text-white p-6 rounded-2xl border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-emerald-400" />
+                      Credit & Debit Card Checkout
+                    </p>
+                    <span className="text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">
+                      Razorpay
+                    </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Expiry Date</label>
-                      <input type="text" required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-white" placeholder="MM/YY" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">CVC</label>
-                      <input type="text" required className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-white" placeholder="123" />
-                    </div>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {['Visa', 'Mastercard', 'RuPay', 'Amex', 'Maestro'].map((b) => (
+                      <span key={b} className="px-2 py-0.5 bg-white/10 text-slate-300 rounded text-xs font-semibold border border-white/10">
+                        {b}
+                      </span>
+                    ))}
                   </div>
-                  <div className="pt-2 flex items-center gap-2 text-sm text-slate-500 font-medium">
-                    <Lock className="w-4 h-4 text-emerald-600" />
-                    Your payment information is encrypted and secure.
-                  </div>
+                  <p className="text-xs text-slate-300 flex items-center gap-2 pt-2 border-t border-white/10">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Bank-grade 3D Secure OTP verification. Opens securely upon clicking Pay.</span>
+                  </p>
                 </div>
               )}
 
               {paymentMethod === 'upi' && (
-                <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-4 text-center">
-                  <p className="text-slate-600 text-sm mb-4">Enter your UPI ID to receive a payment request.</p>
-                  <input type="text" required placeholder="username@upi" className="w-full max-w-sm mx-auto block px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-shadow text-sm bg-white" />
+                <div className="bg-slate-900 text-white p-6 rounded-2xl border border-slate-800 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-emerald-400" />
+                      Instant UPI & QR Code
+                    </p>
+                    <span className="text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 px-2 py-0.5 rounded-full">
+                      Razorpay
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {['Google Pay', 'PhonePe', 'Paytm', 'BHIM', 'Scan QR'].map((a) => (
+                      <span key={a} className="px-2 py-0.5 bg-white/10 text-slate-300 rounded text-xs font-semibold border border-white/10">
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-300 flex items-center gap-2 pt-2 border-t border-white/10">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Instant zero-fee transfer via any UPI app or QR code scan.</span>
+                  </p>
+                  {Boolean((import.meta as any).env?.VITE_RAZORPAY_KEY_ID?.startsWith('rzp_test_')) && (
+                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-200 text-[11px] leading-relaxed">
+                      <span className="font-bold text-amber-300">💡 Test Mode Note:</span> Real GPay / PhonePe will show "Invalid UPI ID" for test QR codes. To test UPI, choose <strong>UPI ID</strong> in the modal and enter <code className="bg-amber-400/20 px-1 py-0.5 rounded text-amber-100 font-mono">success@razorpay</code>.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -460,7 +568,9 @@ export function CartCheckout() {
                 disabled={isProcessing}
                 className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold text-base hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center"
               >
-                {isProcessing ? 'Processing...' : `Pay ₹${total}`}
+                {isProcessing 
+                  ? (paymentMethod === 'cod' ? 'Confirming Order...' : 'Connecting to Razorpay...') 
+                  : (paymentMethod === 'cod' ? `Complete Order (COD) • ₹${total}` : `Pay with Razorpay • ₹${total}`)}
               </button>
             </div>
           </div>
