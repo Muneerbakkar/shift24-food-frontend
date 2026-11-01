@@ -53,8 +53,17 @@ function formatFoodItem(item: any, planId: string) {
       fiber: item.fiber || ''
     },
     micros: (item.microNutrients && item.microNutrients.length > 0)
-      ? item.microNutrients.map((m: any) => typeof m === 'string' ? m : `${m.name} (${m.amount})`)
-      : ['Iron', 'Potassium', 'Vitamin C'],
+      ? item.microNutrients
+          .map((m: any) => {
+            if (typeof m === 'string') return m.trim();
+            const name = String(m?.name || '').trim();
+            const amount = String(m?.amount || '').trim();
+            if (!name) return '';
+            // Only show "(value)" when an amount was actually entered.
+            return amount ? `${name} (${amount})` : name;
+          })
+          .filter(Boolean)
+      : [],
     ingredients: item.ingredients || [],
     images: Array.isArray(item.images) ? item.images.filter(Boolean) : []
   };
@@ -1000,7 +1009,7 @@ export function MealDetails() {
                       <span className="font-black text-slate-900">{meal.macros.fiber || '—'}</span>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-3">
-                      <div className="bg-emerald-500 h-3 rounded-full shadow-sm" style={{ width: '25%' }}></div>
+                      <div className="bg-emerald-500 h-3 rounded-full shadow-sm" style={{ width: meal.macros.fiber ? '25%' : '0%' }}></div>
                     </div>
                   </div>
                 </div>
@@ -1009,14 +1018,20 @@ export function MealDetails() {
               {/* Micros */}
               <div className="bg-emerald-50/50 p-6 md:p-8 rounded-2xl md:rounded-3xl border border-emerald-100">
                 <h4 className="text-sm font-black uppercase tracking-widest text-emerald-600/70 mb-8">Micronutrient Profile</h4>
-                <p className="text-slate-600 mb-6">This meal is particularly rich in the following essential vitamins and minerals:</p>
-                <div className="flex flex-wrap gap-3">
-                  {meal.micros.map((micro: string, i: number) => (
-                    <span key={i} className="bg-white text-emerald-700 px-5 py-3 rounded-xl text-base font-bold border border-emerald-100 shadow-sm">
-                      {micro}
-                    </span>
-                  ))}
-                </div>
+                {meal.micros.length > 0 ? (
+                  <>
+                    <p className="text-slate-600 mb-6">This meal is particularly rich in the following essential vitamins and minerals:</p>
+                    <div className="flex flex-wrap gap-3">
+                      {meal.micros.map((micro: string, i: number) => (
+                        <span key={i} className="bg-white text-emerald-700 px-5 py-3 rounded-xl text-base font-bold border border-emerald-100 shadow-sm">
+                          {micro}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-slate-500 text-sm">Micronutrient values haven&apos;t been added for this dish yet.</p>
+                )}
               </div>
             </div>
           </div>
