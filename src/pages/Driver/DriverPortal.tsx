@@ -88,8 +88,6 @@ export function DriverPortal() {
         if (isPushSupported() && typeof Notification !== 'undefined') {
           if (Notification.permission === 'granted') {
             await subscribeToPushNotifications('driver', driver?.phone || driver?.driverId, driver?.name);
-          } else if (Notification.permission === 'default') {
-            await subscribeToPushNotifications('driver', driver?.phone || driver?.driverId, driver?.name).catch(() => {});
           }
         }
       } catch (err) {

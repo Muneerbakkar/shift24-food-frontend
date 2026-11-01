@@ -54,10 +54,18 @@ export async function subscribeToPushNotifications(
   }
 
   try {
-    // 1. Request Browser Permission
-    const permission = await Notification.requestPermission();
+    // 1. Check or Request Browser Permission
+    let permission: NotificationPermission = Notification.permission;
+    if (permission === 'denied') {
+      return { success: false, message: 'Notification permission is blocked in browser settings.' };
+    }
+
     if (permission !== 'granted') {
-      return { success: false, message: 'Notification permission was denied.' };
+      permission = await Notification.requestPermission();
+    }
+
+    if (permission !== 'granted') {
+      return { success: false, message: 'Notification permission was not granted.' };
     }
 
     // 2. Fetch VAPID public key
