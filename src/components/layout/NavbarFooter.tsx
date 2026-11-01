@@ -47,29 +47,19 @@ export function Navbar() {
     };
   }, []);
 
-  // Push notification sync & auto-enable
+  // Push notification status sync
   useEffect(() => {
     if (!isPushSupported()) return;
 
     const syncPush = () => {
       const perm = getNotificationPermission();
-      const enabled = perm === 'granted';
-      setIsPushEnabled(enabled);
-
-      // Auto-enable in background if browser permission is already granted and user is logged in
-      if (enabled && localStorage.getItem('isLoggedIn') === 'true') {
-        const email = localStorage.getItem('userEmail') || '';
-        const name = localStorage.getItem('userName') || 'Customer';
-        if (email) {
-          subscribeToPushNotifications('customer', email, name).catch(() => {});
-        }
-      }
+      setIsPushEnabled(perm === 'granted');
     };
 
     syncPush();
     window.addEventListener('shift24-push-status-changed', syncPush);
     return () => window.removeEventListener('shift24-push-status-changed', syncPush);
-  }, [isLoggedIn]);
+  }, []);
 
   const handleEnablePush = async () => {
     if (isPushEnabled) {
