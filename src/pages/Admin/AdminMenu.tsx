@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   UtensilsCrossed, 
   Edit2, 
@@ -21,7 +21,9 @@ import {
   RefreshCw,
   Clock,
   Layers,
-  Sliders
+  Sliders,
+  Upload,
+  Loader2
 } from 'lucide-react';
 import { 
   getAdminPlans, 
@@ -41,8 +43,11 @@ import {
   deleteBackendPlan, 
   fetchWeeklyMenu, 
   saveBackendMenuItem, 
-  deleteBackendMenuItem 
+  deleteBackendMenuItem,
+  uploadMenuItemImage,
+  fetchUploadConfig
 } from '../../services/api';
+import { prepareImageForUpload, formatBytes } from '../../utils/image';
 import toast from 'react-hot-toast';
 import { showConfirmToast } from '../../utils/confirmToast';
 
@@ -71,6 +76,7 @@ export interface FoodItem {
   fat: string;
   benefits?: string[];
   image?: string;
+  images?: string[];
   microNutrients?: MicroNutrient[];
   ingredients?: IngredientItem[];
 }
@@ -117,7 +123,8 @@ const DEFAULT_INITIAL_FOODS: FoodItem[] = [
 
 export function AdminMenu() {
   const [plans, setPlans] = useState<AdminPlanConfig[]>([]);
-  const [selectedPlanId, setSelectedPlanId] = useState<string>('weight-loss');
+  // Start empty and bind to a real plan once plans load — never assume a plan id.
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [activeSection, setActiveSection] = useState<'subscription-pricing' | 'daily-food'>('subscription-pricing');
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [availableDays, setAvailableDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
@@ -151,10 +158,11 @@ export function AdminMenu() {
     fat: string;
     benefits: string;
     image: string;
+    images: string[];
     microNutrients: MicroNutrient[];
     ingredients: IngredientItem[];
   }>({
-    planId: 'weight-loss',
+    planId: '',
     day: 1,
     mealType: 'breakfast',
     name: '',
@@ -165,9 +173,106 @@ export function AdminMenu() {
     fat: '15g',
     benefits: 'High Protein, Fresh Ingredients',
     image: '',
+    images: [],
     microNutrients: [],
     ingredients: []
   });
+
+  // Cloudinary image upload state for the dish form
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isUploadingGallery, setIsUploadingGallery] = useState(false);
+  const [galleryProgress, setGalleryProgress] = useState<string>('');
+  const [uploadedImageInfo, setUploadedImageInfo] = useState<string>('');
+  const [cloudinaryReady, setCloudinaryReady] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    refreshUploadConfig();
+  }, []);
+
+  const refreshUploadConfig = () => {
+    fetchUploadConfig()
+      .then(status => setCloudinaryReady(Boolean(status?.configured)))
+      .catch(() => setCloudinaryReady(false));
+  };
+
+  const handleDishImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow picking the same file again later
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    setUploadedImageInfo('');
+    try {
+      const prepared = await prepareImageForUpload(file);
+      const result = await uploadMenuItemImage(prepared.dataUrl);
+
+      if (!result.success || !result.url) {
+        toast.error(result.message || 'Image upload failed');
+        return;
+      }
+
+      setFoodForm(prev => ({ ...prev, image: result.url as string }));
+      setUploadedImageInfo(`${prepared.width}×${prepared.height} · ${formatBytes(prepared.bytes)} uploaded`);
+      toast.success('Image uploaded to Cloudinary — save the dish to store its URL');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not prepare that image for upload');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  // Upload several gallery photos (in order) and attach them to this dish.
+  const handleGalleryImagesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const pickedFiles = event.target.files;
+    const files: File[] = pickedFiles ? Array.from(pickedFiles) : [];
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    setIsUploadingGallery(true);
+    const uploaded: string[] = [];
+    try {
+      for (let index = 0; index < files.length; index++) {
+        setGalleryProgress(`${index + 1}/${files.length}`);
+        try {
+          const prepared = await prepareImageForUpload(files[index]);
+          const result = await uploadMenuItemImage(prepared.dataUrl);
+          if (result.success && result.url) {
+            uploaded.push(result.url);
+          } else {
+            toast.error(`${files[index].name}: ${result.message || 'upload failed'}`);
+          }
+        } catch (err: any) {
+          toast.error(`${files[index].name}: ${err?.message || 'could not be prepared'}`);
+        }
+      }
+
+      if (uploaded.length > 0) {
+        setFoodForm(prev => {
+          const cover = prev.image || uploaded[0];
+          const gallery = [...prev.images, ...uploaded.filter(url => url !== cover)].slice(0, 11);
+          return { ...prev, image: cover, images: gallery };
+        });
+        toast.success(`${uploaded.length} photo${uploaded.length > 1 ? 's' : ''} added to the gallery`);
+      }
+    } finally {
+      setIsUploadingGallery(false);
+      setGalleryProgress('');
+    }
+  };
+
+  const removeGalleryImage = (url: string) => {
+    setFoodForm(prev => ({ ...prev, images: prev.images.filter(image => image !== url) }));
+  };
+
+  const makeCoverImage = (url: string) => {
+    setFoodForm(prev => {
+      const others = prev.images.filter(image => image !== url);
+      const previousCover = prev.image && prev.image !== url && !others.includes(prev.image) ? [prev.image] : [];
+      return { ...prev, image: url, images: [...previousCover, ...others].slice(0, 11) };
+    });
+  };
 
   // 1. Initial Load of Plans & Menu Items
   useEffect(() => {
@@ -211,11 +316,12 @@ export function AdminMenu() {
       setPlans(getAdminPlans());
     }
 
-    // Load menu items
+    // Load menu items — MongoDB is the single source of truth for the menu.
+    // Browser-cached dishes from earlier sessions must not be mixed into it: they
+    // never reach customers and make the admin believe food exists in the database.
     try {
       const menuRes = await fetchWeeklyMenu();
-      if (menuRes?.success && Array.isArray(menuRes.data) && menuRes.data.length > 0) {
-        const localFoods = getAdminFoods();
+      if (menuRes?.success && Array.isArray(menuRes.data)) {
         const items: FoodItem[] = menuRes.data.map((item: any) => ({
           id: item._id || item.id,
           planId: (item.planId || 'balance').trim().toLowerCase(),
@@ -229,17 +335,32 @@ export function AdminMenu() {
           fat: item.fat || '15g',
           benefits: item.benefits || [],
           image: item.image || '',
+          images: Array.isArray(item.images) ? item.images.filter(Boolean) : [],
           microNutrients: Array.isArray(item.microNutrients) ? item.microNutrients : [],
           ingredients: Array.isArray(item.ingredients) ? item.ingredients : []
         }));
 
-        // Keep any local items that aren't in backend yet
-        const backendKeys = new Set(items.map(i => `${i.planId}-${i.day}-${i.mealType}`));
-        const extraLocalFoods = localFoods.filter(f => !backendKeys.has(`${(f.planId || '').trim().toLowerCase()}-${Number(f.day)}-${f.mealType}`));
-        const finalFoods = [...items, ...extraLocalFoods];
+        // Archive (never silently delete) cached dishes the database does not have,
+        // so they can be recovered if they were meant to be real menu items.
+        const dbKeys = new Set(items.map(i => `${i.planId}-${i.day}-${String(i.mealType).toLowerCase()}`));
+        const cachedOnly = getAdminFoods().filter(f => {
+          const cachedPlanId = (f.planId || '').trim().toLowerCase();
+          if (!cachedPlanId) return false;
+          return !dbKeys.has(`${cachedPlanId}-${Number(f.day)}-${String(f.mealType || '').toLowerCase()}`);
+        });
+        if (cachedOnly.length > 0) {
+          try {
+            localStorage.setItem('shift24_admin_foods_uncached', JSON.stringify({
+              archivedAt: new Date().toISOString(),
+              note: 'Dishes that existed only in this browser cache, not in MongoDB. Archived instead of shown as menu data.',
+              foods: cachedOnly
+            }));
+          } catch {}
+          console.warn(`[AdminMenu] ${cachedOnly.length} cached dish(es) are not in the database. Archived to localStorage key "shift24_admin_foods_uncached".`);
+        }
 
-        setMenuItems(finalFoods);
-        saveAdminFoods(finalFoods);
+        setMenuItems(items);
+        saveAdminFoods(items);
       } else {
         loadStoredFoods();
       }
@@ -264,14 +385,23 @@ export function AdminMenu() {
     setAvailableDays(daysList);
   }, [selectedPlanId, menuItems, selectedDay]);
 
+  // The selected plan id must always reference a plan that really exists, otherwise
+  // dishes get written under an id no plan owns (e.g. a stale 'weight-loss' id).
+  useEffect(() => {
+    if (plans.length === 0) return;
+    if (!plans.some(p => p.id === selectedPlanId)) {
+      setSelectedPlanId(plans[0].id);
+    }
+  }, [plans, selectedPlanId]);
+
   const activePlan = plans.find(p => p.id === selectedPlanId) || plans[0] || {
-    id: 'weight-loss',
-    title: 'Weight Loss',
-    description: 'Calorie-controlled meals',
-    pricePerWeek: 3000,
-    calories: '1200 - 1500 kcal/day',
-    benefits: ['High protein', 'Low carb'],
-    active: true
+    id: '',
+    title: 'No meal plan selected',
+    description: 'Create or select a meal plan to schedule dishes.',
+    pricePerWeek: 0,
+    calories: '—',
+    benefits: [],
+    active: false
   };
 
   // Current day foods for active plan
@@ -321,7 +451,9 @@ export function AdminMenu() {
       toast.error('Please provide a plan title');
       return;
     }
-    const slug = newPlanForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const baseSlug = newPlanForm.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'plan';
+    // Never reuse an existing plan id: the backend save would overwrite that plan.
+    const slug = plans.some(p => p.id === baseSlug) ? `${baseSlug}-${Date.now().toString().slice(-4)}` : baseSlug;
     const newPlanObj: AdminPlanConfig = {
       id: slug,
       title: newPlanForm.title.trim(),
@@ -378,7 +510,7 @@ export function AdminMenu() {
         const updated = plans.filter(p => p.id !== planId);
         setPlans(updated);
         saveAdminPlans(updated);
-        setSelectedPlanId(updated[0]?.id || 'weight-loss');
+        setSelectedPlanId(updated[0]?.id || '');
         toast.success(`Plan "${planToDelete?.title || planId}" deleted successfully`);
       }
     });
@@ -386,7 +518,13 @@ export function AdminMenu() {
 
   // Food Item Management Handlers
   const handleOpenAddFoodModal = (mealType: 'breakfast' | 'lunch' | 'dinner') => {
+    if (!plans.some(p => p.id === selectedPlanId)) {
+      toast.error('Select a meal plan before adding food');
+      return;
+    }
     setFoodModalMode('create');
+    setUploadedImageInfo('');
+    refreshUploadConfig();
     setFoodForm({
       planId: selectedPlanId,
       day: selectedDay,
@@ -398,7 +536,9 @@ export function AdminMenu() {
       carbs: '40g',
       fat: '15g',
       benefits: 'Clean Fuel, Chef Prepared, Nutrient Rich',
-      image: PRESET_FOOD_IMAGES[0].url,
+      // No stock default: a new dish starts without a photo so only real uploads show on the site.
+      image: '',
+      images: [],
       microNutrients: [
         { name: 'Dietary Fiber', amount: '4g' },
         { name: 'Sodium', amount: '220mg' },
@@ -411,6 +551,8 @@ export function AdminMenu() {
 
   const handleOpenEditFoodModal = (food: FoodItem) => {
     setFoodModalMode('edit');
+    setUploadedImageInfo('');
+    refreshUploadConfig();
     setFoodForm({
       id: food.id || food._id,
       planId: food.planId,
@@ -424,6 +566,7 @@ export function AdminMenu() {
       fat: food.fat || '15g',
       benefits: (food.benefits || []).join(', '),
       image: food.image || '',
+      images: Array.isArray(food.images) ? [...food.images] : [],
       microNutrients: Array.isArray(food.microNutrients) && food.microNutrients.length > 0
         ? [...food.microNutrients]
         : [
@@ -442,6 +585,13 @@ export function AdminMenu() {
       return;
     }
 
+    // A dish may only be stored under a plan id that really exists.
+    const targetPlan = plans.find(p => p.id === foodForm.planId);
+    if (!targetPlan) {
+      toast.error('Pick a valid meal plan before saving this dish');
+      return;
+    }
+
     const benefitsArray = foodForm.benefits
       .split(',')
       .map(b => b.trim())
@@ -449,7 +599,7 @@ export function AdminMenu() {
 
     const payload: FoodItem = {
       id: foodForm.id,
-      planId: foodForm.planId,
+      planId: targetPlan.id,
       day: Number(foodForm.day),
       mealType: foodForm.mealType,
       name: foodForm.name.trim(),
@@ -459,7 +609,8 @@ export function AdminMenu() {
       carbs: foodForm.carbs.trim(),
       fat: foodForm.fat.trim(),
       benefits: benefitsArray,
-      image: foodForm.image.trim() || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=600',
+      image: foodForm.image.trim() || foodForm.images[0] || '',
+      images: foodForm.images.filter(url => url && url !== (foodForm.image.trim() || foodForm.images[0])),
       microNutrients: foodForm.microNutrients.filter(m => m.name.trim()),
       ingredients: foodForm.ingredients
         .filter(i => i.name.trim())
@@ -470,17 +621,21 @@ export function AdminMenu() {
         }))
     };
 
-    // 1. Save to backend
+    // 1. Save to the database. If that fails, stop here and keep the form open —
+    //    a dish that only lives in this browser is not real menu data.
     try {
       const res = await saveBackendMenuItem(payload);
-      if (res?.data?._id) {
-        payload.id = res.data._id;
+      if (!res?.success || !res?.data?._id) {
+        toast.error(res?.message || 'Could not save this dish to the database');
+        return;
       }
-    } catch (err) {
-      console.warn('Could not save to backend API, saving locally:', err);
+      payload.id = res.data._id;
+    } catch (err: any) {
+      toast.error(`Could not save this dish: ${err?.message || 'backend unreachable'}`);
+      return;
     }
 
-    // 2. Update local state
+    // 2. Update local state (mirrors what the database now holds)
     const existingIndex = menuItems.findIndex(
       m => m.planId === payload.planId && m.day === payload.day && m.mealType === payload.mealType
     );
@@ -496,7 +651,7 @@ export function AdminMenu() {
     setMenuItems(updatedList);
     saveAdminFoods(updatedList);
     setIsFoodModalOpen(false);
-    toast.success(`${payload.name} saved for Day ${payload.day} (${payload.mealType})!`);
+    toast.success(`${payload.name} saved to "${targetPlan.title}" — Day ${payload.day} (${payload.mealType})`);
   };
 
   const handleDeleteFood = (food: FoodItem) => {
@@ -670,13 +825,19 @@ export function AdminMenu() {
         </div>
 
         {/* Selected Plan Details & Fast Edit Banner */}
-        {activePlan && (
+        {plans.length > 0 && activePlan && (
           <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/70 p-4 rounded-2xl">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <h4 className="font-extrabold text-sm text-slate-900">{activePlan.title} Plan</h4>
                 <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
                   Active
+                </span>
+                <span
+                  className="text-[10px] font-semibold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-md font-mono"
+                  title="Stable plan identifier stored on every dish and subscription for this plan. Renaming the plan does not change it."
+                >
+                  planId: {activePlan.id}
                 </span>
               </div>
               <p className="text-xs text-slate-500 max-w-xl">{activePlan.description}</p>
@@ -859,10 +1020,16 @@ export function AdminMenu() {
                     onChange={(e) => setFoodForm({ ...foodForm, planId: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
+                    {foodForm.planId && !plans.some(p => p.id === foodForm.planId) && (
+                      <option value={foodForm.planId}>Unknown plan ({foodForm.planId})</option>
+                    )}
                     {plans.map(p => (
                       <option key={p.id} value={p.id}>{p.title}</option>
                     ))}
                   </select>
+                  <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                    planId: {foodForm.planId || '—'}
+                  </p>
                 </div>
 
                 <div>
@@ -1206,15 +1373,71 @@ export function AdminMenu() {
                 />
               </div>
 
-              {/* Food Image URL & Quick Presets */}
+              {/* Dish photo: upload to Cloudinary, paste a URL, or pick a preset */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1">
                   <ImageIcon className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Image URL (or select preset thumbnail)</span>
+                  <span>Dish Photo</span>
+                  <span className="font-medium text-slate-400">— uploaded to Cloudinary</span>
                 </label>
+
+                {cloudinaryReady === false && (
+                  <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] leading-relaxed text-amber-800">
+                    Cloudinary is not configured yet. Add <span className="font-mono">CLOUDINARY_CLOUD_NAME</span>, <span className="font-mono">CLOUDINARY_API_KEY</span> and <span className="font-mono">CLOUDINARY_API_SECRET</span> to <span className="font-mono">backend/.env</span>, then restart the backend.
+                  </div>
+                )}
+
+                <div className="flex items-stretch gap-2 mb-2">
+                  <div className="h-16 w-24 shrink-0 overflow-hidden rounded-xl border border-slate-300 bg-slate-100 flex items-center justify-center">
+                    {foodForm.image ? (
+                      <img src={foodForm.image} alt="Dish preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-5 h-5 text-slate-400" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={handleDishImageSelected}
+                      />
+                      <button
+                        type="button"
+                        disabled={isUploadingImage}
+                        onClick={() => imageInputRef.current?.click()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-[11px] font-bold transition-colors cursor-pointer disabled:cursor-wait"
+                      >
+                        {isUploadingImage
+                          ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          : <Upload className="w-3.5 h-3.5" />}
+                        <span>{isUploadingImage ? 'Uploading…' : 'Upload image'}</span>
+                      </button>
+
+                      {foodForm.image && (
+                        <button
+                          type="button"
+                          onClick={() => { setFoodForm({ ...foodForm, image: '' }); setUploadedImageInfo(''); }}
+                          className="px-2 py-1.5 text-[11px] font-bold text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[10px] leading-snug text-slate-400">
+                      {uploadedImageInfo
+                        ? <span className="font-semibold text-emerald-600">{uploadedImageInfo}</span>
+                        : 'JPG, PNG, WebP or GIF · max 12 MB · resized to 1600px, then the Cloudinary CDN URL is saved in the dish image field.'}
+                    </p>
+                  </div>
+                </div>
+
                 <input
                   type="url"
-                  placeholder="https://..."
+                  placeholder="…or paste an image URL (https://...)"
                   value={foodForm.image}
                   onChange={(e) => setFoodForm({ ...foodForm, image: e.target.value })}
                   className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800 mb-2"
@@ -1225,7 +1448,7 @@ export function AdminMenu() {
                     <button
                       key={idx}
                       type="button"
-                      onClick={() => setFoodForm({ ...foodForm, image: preset.url })}
+                      onClick={() => { setFoodForm({ ...foodForm, image: preset.url }); setUploadedImageInfo(''); }}
                       className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
                         foodForm.image === preset.url
                           ? 'bg-emerald-100 border-emerald-500 text-emerald-800'
@@ -1236,6 +1459,65 @@ export function AdminMenu() {
                       <span>{preset.label}</span>
                     </button>
                   ))}
+                </div>
+
+                {/* Gallery photos — shown under the main photo on the dish page */}
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1 text-[11px] font-bold text-slate-700">
+                      <Layers className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Gallery photos ({foodForm.images.length})</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">click a photo to make it the cover</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {foodForm.images.map(url => (
+                      <div key={url} className="relative h-16 w-16 overflow-hidden rounded-lg border border-slate-300 group">
+                        <img src={url} alt="Gallery" className="h-full w-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => makeCoverImage(url)}
+                          title="Use as cover photo"
+                          className="absolute inset-0 flex items-center justify-center bg-slate-900/0 opacity-0 transition-all group-hover:bg-slate-900/45 group-hover:opacity-100 cursor-pointer"
+                        >
+                          <span className="rounded-md bg-white/95 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">Cover</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeGalleryImage(url)}
+                          title="Remove photo"
+                          className="absolute right-0.5 top-0.5 rounded-md bg-white/90 p-0.5 text-slate-500 hover:text-rose-600 shadow-2xs cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+
+                    <input
+                      ref={galleryInputRef}
+                      type="file"
+                      multiple
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={handleGalleryImagesSelected}
+                    />
+                    <button
+                      type="button"
+                      disabled={isUploadingGallery}
+                      onClick={() => galleryInputRef.current?.click()}
+                      className="flex h-16 w-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-emerald-300 bg-white text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-wait disabled:opacity-70 cursor-pointer"
+                    >
+                      {isUploadingGallery
+                        ? <Loader2 className="w-4 h-4 animate-spin" />
+                        : <Plus className="w-4 h-4" />}
+                      <span className="text-[9px] font-bold">{isUploadingGallery ? galleryProgress || '…' : 'Add'}</span>
+                    </button>
+                  </div>
+
+                  <p className="mt-1.5 text-[10px] leading-snug text-slate-400">
+                    Pick several photos at once — the first one becomes the cover if none is set. Max 11 gallery photos.
+                  </p>
                 </div>
               </div>
 
@@ -1250,10 +1532,11 @@ export function AdminMenu() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  disabled={isUploadingImage || isUploadingGallery}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:cursor-wait"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>Save Food Item</span>
+                  {(isUploadingImage || isUploadingGallery) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>{isUploadingGallery ? 'Uploading photos…' : isUploadingImage ? 'Uploading image…' : 'Save Food Item'}</span>
                 </button>
               </div>
             </form>
@@ -1391,6 +1674,9 @@ export function AdminMenu() {
                   onChange={(e) => setEditingPlan({ ...editingPlan, title: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-800"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Plan ID stays <span className="font-mono font-semibold text-slate-500">{editingPlan.id}</span> — every dish, subscription and order for this plan keeps pointing at it when the title changes.
+                </p>
               </div>
 
               <div>

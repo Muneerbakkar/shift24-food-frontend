@@ -26,7 +26,8 @@ import {
   deleteAdminSubscriptionLocally,
   AdminSubscription,
   getAdminOrders,
-  saveAdminOrders
+  saveAdminOrders,
+  getAdminPlans
 } from './adminData';
 import { 
   fetchSubscriptions, 
@@ -66,13 +67,9 @@ export function AdminSubscriptions() {
   const [isLoading, setIsLoading] = useState(false);
 
   const planOptions = React.useMemo(() => {
-    const defaultOptions = [
-      { id: 'weight-loss', title: 'Weight Loss' },
-      { id: 'balance', title: 'Balance Weight' },
-      { id: 'weight-gain', title: 'Weight Gain' }
-    ];
     const map = new Map<string, string>();
-    defaultOptions.forEach(opt => map.set(opt.id, opt.title));
+    // Offer the plans that actually exist, never a hardcoded legacy list.
+    getAdminPlans().forEach(plan => map.set(plan.id, plan.title));
     subscriptions.forEach(sub => {
       if (sub.planId && !map.has(sub.planId)) {
         map.set(sub.planId, sub.planTitle || sub.planId);

@@ -1300,6 +1300,7 @@ export interface FoodItem {
   fat: string;
   benefits?: string[];
   image?: string;
+  images?: string[];
   microNutrients?: MicroNutrient[];
   ingredients?: IngredientItem[];
 }
@@ -1343,7 +1344,8 @@ export function getAdminFoods(): FoodItem[] {
   } catch (e) {
     console.error(e);
   }
-  return DEFAULT_INITIAL_FOODS;
+  // No demo dishes: the menu lives in MongoDB, never in bundled sample data.
+  return [];
 }
 
 export function saveAdminFoods(foods: FoodItem[]) {

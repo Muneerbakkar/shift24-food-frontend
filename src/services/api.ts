@@ -562,6 +562,48 @@ export async function deleteBackendMenuItem(params: { id?: string; planId?: stri
 
 
 // -------------------------------------------------------------
+// Image uploads (Cloudinary, signed on the backend)
+// -------------------------------------------------------------
+export interface ImageUploadResult {
+  success: boolean;
+  url?: string;
+  message?: string;
+}
+
+export async function uploadMenuItemImage(dataUrl: string): Promise<ImageUploadResult> {
+  try {
+    const res = await fetch(`${API_BASE}/uploads/image`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ file: dataUrl })
+    });
+
+    const body: any = await res.json().catch(() => ({}));
+    if (!res.ok || !body?.success || !body?.data?.url) {
+      return { success: false, message: body?.message || `Upload failed (HTTP ${res.status})` };
+    }
+    return { success: true, url: body.data.url };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Upload failed — the backend is unreachable' };
+  }
+}
+
+export async function fetchUploadConfig(): Promise<{ configured: boolean; cloudName?: string | null; missing?: string[]; folder?: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/uploads/status`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    const body: any = await res.json().catch(() => ({}));
+    return body?.data || { configured: false };
+  } catch {
+    return { configured: false };
+  }
+}
+
+
+// -------------------------------------------------------------
 // Customers
 // -------------------------------------------------------------
 export async function fetchCustomers(search?: string) {

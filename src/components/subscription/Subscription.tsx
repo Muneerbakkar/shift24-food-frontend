@@ -44,7 +44,7 @@ function formatFoodItem(item: any, planId: string) {
     name: item.name,
     cals: item.calories || '450 kcal',
     desc: item.description || `${item.name} prepared fresh according to your ${planId} targets.`,
-    image: item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800',
+    image: item.image || '',
     benefits: item.benefits && item.benefits.length > 0 ? item.benefits : ['Chef crafted', 'Balanced nutrition', 'High quality ingredients'],
     macros: {
       protein: item.protein || '25g',
@@ -54,7 +54,8 @@ function formatFoodItem(item: any, planId: string) {
     micros: (item.microNutrients && item.microNutrients.length > 0)
       ? item.microNutrients.map((m: any) => typeof m === 'string' ? m : `${m.name} (${m.amount})`)
       : ['Iron', 'Potassium', 'Vitamin C'],
-    ingredients: item.ingredients || []
+    ingredients: item.ingredients || [],
+    images: Array.isArray(item.images) ? item.images.filter(Boolean) : []
   };
 }
 
@@ -600,11 +601,17 @@ export function PlanMenu() {
                   className="bg-white rounded-2xl md:rounded-3xl overflow-hidden border border-slate-200 shadow-sm flex flex-col hover:border-emerald-400 hover:shadow-lg transition-all cursor-pointer transform hover:-translate-y-1 group"
                 >
                   <div className="w-full h-48 relative bg-slate-100 overflow-hidden">
-                    <img 
-                      src={meal.image} 
-                      alt={meal.name} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                    />
+                    {meal.image ? (
+                      <img 
+                        src={meal.image} 
+                        alt={meal.name} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-300">
+                        <UtensilsCrossed className="w-10 h-10" />
+                      </div>
+                    )}
                     <div className={`absolute top-4 left-4 w-10 h-10 bg-white/90 backdrop-blur-sm ${color} rounded-2xl flex items-center justify-center shadow-sm`}>
                       {icon}
                     </div>
@@ -808,29 +815,15 @@ export function MealDetails() {
     );
   }
 
-  const extras: Record<string, string[]> = {
-    breakfast: [
-      "https://images.unsplash.com/photo-1493770348161-369560ae357d?auto=format&fit=crop&q=80&w=600",
-      "https://images.unsplash.com/photo-1525385133512-2f3bdd039054?auto=format&fit=crop&q=80&w=600",
-      "https://images.unsplash.com/photo-1494597564530-871f2b93ac55?auto=format&fit=crop&q=80&w=600"
-    ],
-    lunch: [
-      "https://images.unsplash.com/photo-1543339308-43e59d6b73a6?auto=format&fit=crop&q=80&w=600",
-      "https://images.unsplash.com/photo-1511690743698-d9d85f2fbf38?auto=format&fit=crop&q=80&w=600",
-      "https://images.unsplash.com/photo-1505253758473-96b7015fcd40?auto=format&fit=crop&q=80&w=600"
-    ],
-    dinner: [
-      "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?auto=format&fit=crop&q=80&w=600",
-      "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=600",
-      "https://images.unsplash.com/photo-1559742811-822873691df8?auto=format&fit=crop&q=80&w=600"
-    ]
-  };
-
+  // Only the images actually attached to this dish in the admin panel: cover first,
+  // then the gallery uploaded with it. No stock/dummy photos.
   const galleryImages = useMemo(() => {
     if (!meal) return [];
-    const extraList = extras[mealTypeStr] || extras.breakfast || [];
-    return [meal.image, ...extraList].filter(Boolean);
-  }, [meal?.image, mealTypeStr]);
+    const uploaded = Array.isArray((meal as any).images) ? (meal as any).images : [];
+    return Array.from(new Set([meal.image, ...uploaded].filter(Boolean))) as string[];
+  }, [meal]);
+
+  const activeImage = galleryImages[Math.min(activeImageIndex, Math.max(galleryImages.length - 1, 0))] || '';
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
@@ -870,34 +863,43 @@ export function MealDetails() {
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
               >
-                <img 
-                  src={galleryImages[activeImageIndex]} 
-                  alt={meal.name} 
-                  className="w-full h-full object-cover transition-opacity duration-500" 
-                  style={{
-                    transformOrigin: `${zoomProps.x}% ${zoomProps.y}%`,
-                    transform: `scale(${zoomProps.scale})`,
-                    transition: zoomProps.scale > 1 ? 'transform 0.1s ease-out' : 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                  }}
-                />
+                {activeImage ? (
+                  <img 
+                    src={activeImage} 
+                    alt={meal.name} 
+                    className="w-full h-full object-cover transition-opacity duration-500" 
+                    style={{
+                      transformOrigin: `${zoomProps.x}% ${zoomProps.y}%`,
+                      transform: `scale(${zoomProps.scale})`,
+                      transition: zoomProps.scale > 1 ? 'transform 0.1s ease-out' : 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
+                    <UtensilsCrossed className="w-12 h-12" />
+                    <span className="text-xs font-semibold text-slate-400">Photo coming soon</span>
+                  </div>
+                )}
               </div>
               
-              {/* Thumbnails Row */}
-              <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
-                {galleryImages.map((img, idx) => (
-                  <button 
-                    key={idx}
-                    onClick={() => {
-                    setActiveImageIndex(idx);
-                    setZoomProps({ scale: 1, x: 50, y: 50 });
-                    zoomStateRef.current = { scale: 1, x: 50, y: 50 };
-                  }}
-                    className={`w-24 h-24 shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-emerald-500 shadow-md scale-105' : 'border-transparent opacity-60 hover:opacity-100 hover:border-slate-300'}`}
-                  >
-                    <img src={img} className="w-full h-full object-cover" alt={`Gallery thumbnail ${idx + 1}`} />
-                  </button>
-                ))}
-              </div>
+              {/* Thumbnails Row — only the photos uploaded for this dish */}
+              {galleryImages.length > 1 && (
+                <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
+                  {galleryImages.map((img, idx) => (
+                    <button 
+                      key={idx}
+                      onClick={() => {
+                      setActiveImageIndex(idx);
+                      setZoomProps({ scale: 1, x: 50, y: 50 });
+                      zoomStateRef.current = { scale: 1, x: 50, y: 50 };
+                    }}
+                      className={`w-24 h-24 shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-emerald-500 shadow-md scale-105' : 'border-transparent opacity-60 hover:opacity-100 hover:border-slate-300'}`}
+                    >
+                      <img src={img} className="w-full h-full object-cover" alt={`Gallery thumbnail ${idx + 1}`} />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Right Column: Product Details */}
