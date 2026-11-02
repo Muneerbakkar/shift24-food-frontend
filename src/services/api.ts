@@ -968,6 +968,19 @@ export async function markReferralPaid(referralId: string, data: { paymentRefere
   }
 }
 
+export async function deleteReferral(referralId: string) {
+  try {
+    const res = await fetch(`${API_BASE}/referrals/admin/${encodeURIComponent(referralId)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
 
 
 

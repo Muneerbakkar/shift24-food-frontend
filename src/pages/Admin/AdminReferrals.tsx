@@ -14,10 +14,12 @@ import {
   Check, 
   Phone, 
   Mail, 
-  AlertCircle 
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { fetchAdminReferrals, markReferralPaid } from '../../services/api';
+import { fetchAdminReferrals, markReferralPaid, deleteReferral } from '../../services/api';
+import { showConfirmToast } from '../../utils/confirmToast';
 
 export function AdminReferrals() {
   const [referrals, setReferrals] = useState<any[]>([]);
@@ -111,6 +113,32 @@ export function AdminReferrals() {
     } catch {
       toast.error('Could not copy — long-press the details to copy manually');
     }
+  };
+
+  const handleDeleteReferral = (referral: any) => {
+    const label = referral.referralId || referral._id;
+    showConfirmToast({
+      title: `Delete referral ${label}?`,
+      description:
+        `${referral.referrerName} → ${referral.refereeName} (${referral.planTitle}, ${referral.duration}).` +
+        (referral.payoutStatus === 'Paid' ? ' This referral is marked as PAID — the payout record will be lost.' : '') +
+        ' This cannot be undone.',
+      confirmText: 'Delete',
+      confirmButtonClass: 'bg-rose-600 hover:bg-rose-700 text-white',
+      onConfirm: async () => {
+        try {
+          const res = await deleteReferral(label);
+          if (res?.success) {
+            toast.success(`Referral ${label} deleted`);
+            loadData();
+          } else {
+            toast.error(res?.message || 'Could not delete referral');
+          }
+        } catch (e: any) {
+          toast.error(e?.message || 'Could not delete referral');
+        }
+      }
+    });
   };
 
   return (
@@ -325,21 +353,31 @@ export function AdminReferrals() {
 
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-right">
-                      {r.payoutStatus === 'Paid' ? (
-                        <span className="text-[11px] font-semibold text-emerald-600">Settled</span>
-                      ) : (
+                      <div className="flex items-center justify-end gap-2">
+                        {r.payoutStatus === 'Paid' ? (
+                          <span className="text-[11px] font-semibold text-emerald-600">Settled</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPayout(r)}
+                            className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-colors cursor-pointer ${
+                              r.payoutStatus === 'Eligible'
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            Mark ₹500 Paid
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => handleOpenPayout(r)}
-                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-colors cursor-pointer ${
-                            r.payoutStatus === 'Eligible'
-                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                          }`}
+                          onClick={() => handleDeleteReferral(r)}
+                          title={`Delete referral ${r.referralId || r._id}`}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                         >
-                          Mark ₹500 Paid
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))
