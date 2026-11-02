@@ -168,9 +168,32 @@ export async function apiForgotPassword(email: string) {
 }
 
 
+// Customer OTP login — step 1: send a 6-digit code by SMS
+export async function apiRequestOtpLogin(phone: string) {
+  const res = await fetch(`${API_BASE}/auth/otp/request`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ phone })
+  });
+  return res.json();
+}
+
+
+// Customer OTP login — step 2: verify the code and start the session
+export async function apiVerifyOtpLogin(phone: string, code: string) {
+  const res = await fetch(`${API_BASE}/auth/otp/verify`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ phone, code })
+  });
+  return res.json();
+}
+
+
 // Reset Password with Verification Code
-export async function apiResetPassword(payload: { email: string; resetCode: string; newPassword: string }) {
-  const res = await fetch(`${API_BASE}/auth/reset-password`, {
+export async function apiResetPassword(payload: { email: string; resetCode: string; newPassword: string }) {  const res = await fetch(`${API_BASE}/auth/reset-password`, {
     method: 'POST',
     credentials: 'include',
     headers: getAuthHeaders(),

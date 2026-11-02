@@ -8,14 +8,18 @@ import {
   ArrowRight, 
   Eye, 
   EyeOff, 
-  ShieldCheck 
+  ShieldCheck,
+  Smartphone,
+  KeyRound
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { 
   apiLogin, 
   apiRegister, 
   apiAdminLogin, 
-  apiDriverLogin 
+  apiDriverLogin,
+  apiRequestOtpLogin,
+  apiVerifyOtpLogin
 } from '../../services/api';
 import { getAdminDrivers } from '../Admin/adminData';
 import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
@@ -47,6 +51,104 @@ export function LoginPage({ initialMode }: LoginPageProps) {
   const [loading, setLoading] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
 
+  // Phone OTP sign-in (customers)
+  const [loginMode, setLoginMode] = useState<'password' | 'otp'>('password');
+  const [otpPhone, setOtpPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
+  const [otpVerifying, setOtpVerifying] = useState(false);
+  const [otpDevCode, setOtpDevCode] = useState<string | null>(null);
+  const [otpCooldown, setOtpCooldown] = useState(0);
+
+  const resetOtpState = () => {
+    setOtpSent(false);
+    setOtpCode('');
+    setOtpDevCode(null);
+    setOtpCooldown(0);
+  };
+
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const timer = setInterval(() => setOtpCooldown(prev => (prev > 0 ? prev - 1 : 0)), 1000);
+    return () => clearInterval(timer);
+  }, [otpCooldown]);
+
+  // Shared customer-session setup (used by password login, signup and OTP login)
+  const startCustomerSession = (res: any, fallbackEmail = '') => {
+    localStorage.removeItem('activeSubscription');
+    localStorage.setItem('token', res.token);
+    localStorage.setItem('isLoggedIn', 'true');
+    localStorage.setItem('user', JSON.stringify(res.user));
+    localStorage.setItem('userName', res.user?.name || 'Customer');
+    localStorage.setItem('userEmail', res.user?.email || fallbackEmail);
+    window.dispatchEvent(new Event('auth-change'));
+  };
+
+  const handleSendOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const digits = otpPhone.replace(/\D/g, '');
+    if (digits.length < 10) {
+      toast.error('Enter a valid 10-digit mobile number');
+      return;
+    }
+
+    try {
+      setOtpSending(true);
+      const res = await apiRequestOtpLogin(otpPhone);
+      if (!res?.success) {
+        toast.error(res?.message || 'Could not send the code');
+        return;
+      }
+      // No SMS went out and there is no development code to show — stay on the phone step.
+      if (!res.sent && !res.devCode) {
+        toast.error(res.message || 'SMS could not be sent. Please try again later.');
+        return;
+      }
+
+      setOtpSent(true);
+      setOtpDevCode(res.devCode || null);
+      setOtpCooldown(Number(res.retryAfter) || 60);
+      if (res.sent) {
+        toast.success(`Verification code sent to ${res.phone || otpPhone}`);
+      } else {
+        toast.success('Verification code generated — see the note below');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Unable to reach the server. Please try again.');
+    } finally {
+      setOtpSending(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!/^\d{6}$/.test(otpCode.trim())) {
+      toast.error('Enter the 6-digit code from the SMS');
+      return;
+    }
+
+    try {
+      setOtpVerifying(true);
+      const res = await apiVerifyOtpLogin(otpPhone, otpCode.trim());
+      if (!res?.success || !res.token) {
+        toast.error(res?.message || 'Incorrect or expired code');
+        return;
+      }
+
+      startCustomerSession(res);
+      toast.success(
+        res.isNewUser ? 'Welcome to SHIFT24! Your account is ready.' : `Welcome back, ${res.user?.name || 'Customer'}!`
+      );
+      const from = location.state?.from?.pathname || '/profile';
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      toast.error(err?.message || 'Verification failed. Please try again.');
+    } finally {
+      setOtpVerifying(false);
+    }
+  };
+
   useEffect(() => {
     if (searchParams.get('mode') === 'signup') {
       setIsSignUp(true);
@@ -55,6 +157,14 @@ export function LoginPage({ initialMode }: LoginPageProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Customer OTP flow: step 1 sends the code, step 2 verifies it.
+    if (!isSignUp && loginMode === 'otp') {
+      if (otpSent) await handleVerifyOtp();
+      else await handleSendOtp();
+      return;
+    }
+
     const cleanEmail = email.trim();
     const cleanPassword = password.trim();
 
@@ -255,7 +365,9 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           <p className="text-slate-500 text-xs sm:text-sm mt-1 max-w-sm mx-auto">
             {isSignUp 
               ? 'Join Shift24 for daily healthy meal plans in Kakkanad' 
-              : 'Enter your email and password to access your account'}
+              : loginMode === 'otp'
+                ? "Enter your mobile number and we'll text you a one-time code"
+                : 'Enter your email and password to access your account'}
           </p>
         </div>
 
@@ -274,7 +386,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           </button>
           <button
             type="button"
-            onClick={() => setIsSignUp(true)}
+            onClick={() => { setIsSignUp(true); setLoginMode('password'); resetOtpState(); }}
             className={`py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${
               isSignUp 
                 ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-900/5' 
@@ -285,9 +397,40 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           </button>
         </div>
 
+        {/* Sign-in method: password or phone OTP (customers only) */}
+        {!isSignUp && (
+          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-2xl mb-4 shadow-inner">
+            <button
+              type="button"
+              onClick={() => { setLoginMode('password'); resetOtpState(); }}
+              className={`py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                loginMode === 'password'
+                  ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-900/5'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5" /> Password
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLoginMode('otp'); resetOtpState(); }}
+              className={`py-2 text-xs font-extrabold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                loginMode === 'otp'
+                  ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-900/5'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5" /> Phone OTP
+            </button>
+          </div>
+        )}
+
         {/* Common Form */}
         <form className="space-y-4" onSubmit={handleSubmit}>
-          
+
+          {loginMode === 'password' || isSignUp ? (
+            <>
+
           {/* Full Name (Sign Up Only) */}
           {isSignUp && (
             <div>
@@ -382,19 +525,116 @@ export function LoginPage({ initialMode }: LoginPageProps) {
             </div>
           </div>
 
+            </>
+          ) : (
+            <>
+              {/* Mobile number */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Mobile Number
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-all disabled:opacity-70"
+                    placeholder="+91 98765 43210"
+                    value={otpPhone}
+                    onChange={e => setOtpPhone(e.target.value)}
+                    disabled={otpSent}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  We&apos;ll text a 6-digit code. Standard SMS rates may apply.
+                </p>
+              </div>
+
+              {/* Code step */}
+              {otpSent && (
+                <>
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        6-Digit Code
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleSendOtp()}
+                        disabled={otpCooldown > 0 || otpSending}
+                        className="text-[11px] text-emerald-600 font-semibold cursor-pointer hover:underline disabled:text-slate-400 disabled:no-underline disabled:cursor-not-allowed"
+                      >
+                        {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : 'Resend code'}
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-base font-mono font-bold tracking-[0.4em] bg-slate-50 focus:bg-white transition-all"
+                        placeholder="123456"
+                        value={otpCode}
+                        onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                        required
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => { setOtpSent(false); setOtpCode(''); setOtpDevCode(null); }}
+                    className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                  >
+                    Use a different number
+                  </button>
+
+                  {otpDevCode && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+                      SMS provider not configured on the server — your code is{' '}
+                      <strong className="font-mono tracking-widest text-emerald-700">{otpDevCode}</strong>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
           {/* Submit Button */}
           <button 
             type="submit" 
-            disabled={loading}
+            disabled={loading || otpSending || otpVerifying}
             className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl transition-all mt-3 shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
           >
-            {loading ? (
-              <span>{isSignUp ? 'Creating Account...' : 'Signing in...'}</span>
+            {isSignUp ? (
+              loading ? <span>Creating Account...</span> : (
+                <>
+                  <span>Create Account</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )
+            ) : loginMode === 'otp' ? (
+              otpSending ? <span>Sending code...</span>
+              : otpVerifying ? <span>Verifying...</span>
+              : (
+                <>
+                  <span>{otpSent ? 'Verify & Sign In' : 'Send Code'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )
             ) : (
-              <>
-                <span>{isSignUp ? 'Create Account' : 'Sign In'}</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
+              loading ? <span>Signing in...</span> : (
+                <>
+                  <span>Sign In</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )
             )}
           </button>
         </form>
@@ -417,7 +657,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
               Don't have an account?{' '}
               <button
                 type="button"
-                onClick={() => setIsSignUp(true)}
+                onClick={() => { setIsSignUp(true); setLoginMode('password'); resetOtpState(); }}
                 className="font-bold text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer ml-1"
               >
                 Create Account
