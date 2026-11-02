@@ -217,16 +217,6 @@ export function Navbar() {
           </div>
 
           <div className="hidden md:flex gap-5 items-center z-10">
-            {!isAppInstalled() && (canInstall || isIosDevice) && (
-              <button
-                onClick={handleInstall}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-all cursor-pointer"
-                title="Install the Shift24 app on this device"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Install App</span>
-              </button>
-            )}
             {isLoggedIn && (
               <>
                 <button
@@ -330,15 +320,6 @@ export function Navbar() {
         </div>
         
         <div className="p-6 flex flex-col gap-6 overflow-y-auto h-full">
-          {!isAppInstalled() && (canInstall || isIosDevice) && (
-            <button
-              onClick={() => { setIsOpen(false); handleInstall(); }}
-              className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>Install App</span>
-            </button>
-          )}
           <Link to="/" onClick={() => setIsOpen(false)} className={`text-base font-medium flex items-center gap-4 ${isActive('/') ? 'text-emerald-600 font-bold' : 'text-slate-600 hover:text-emerald-600'}`}>
             <Home className="w-5 h-5 text-slate-400" /> Home
           </Link>

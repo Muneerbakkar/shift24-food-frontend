@@ -2,6 +2,7 @@ import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { Navbar, Footer } from './NavbarFooter';
 import { ScrollToHashElement } from '../utils/ScrollToHashElement';
+import { InstallAppModal } from '../pwa/InstallAppModal';
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -20,6 +21,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
       <Footer />
+      <InstallAppModal />
     </div>
   );
 }
