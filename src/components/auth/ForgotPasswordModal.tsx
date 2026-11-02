@@ -30,6 +30,7 @@ export function ForgotPasswordModal({
   const [emailSent, setEmailSent] = useState<boolean | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   // Sync defaultEmail when modal opens
   useEffect(() => {
@@ -45,6 +46,7 @@ export function ForgotPasswordModal({
       setEmailSent(null);
       setPreviewUrl(null);
       setGeneratedCode(null);
+      setEmailError(null);
     }
   }, [isOpen, defaultEmail]);
 
@@ -79,6 +81,7 @@ export function ForgotPasswordModal({
       setEmailSent(res.emailSent === true);
       setPreviewUrl(res.previewUrl || null);
       setGeneratedCode(res.resetCode || null);
+      setEmailError(res.emailError || null);
 
       if (res.emailSent === true) {
         toast.success(`Verification email sent to ${cleanEmail}! Please check inbox and spam.`, { duration: 6000 });
@@ -251,7 +254,7 @@ export function ForgotPasswordModal({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 font-bold text-amber-950">
                       <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>SMTP Email Setup Notice</span>
+                      <span>{emailError ? 'Email Delivery Issue' : 'SMTP Email Setup Notice'}</span>
                     </div>
                     <button
                       type="button"
@@ -262,7 +265,19 @@ export function ForgotPasswordModal({
                     </button>
                   </div>
                   <p className="text-[11px] text-amber-800 leading-relaxed">
-                    Live SMTP email service is not configured in <code className="bg-amber-100/90 px-1 py-0.5 rounded font-mono text-[10px]">backend/.env</code> yet.
+                    {emailError ? (
+                      <>
+                        Live email could not be sent: <span className="font-semibold">{emailError}</span>. Use the code below
+                        to reset your password for now.
+                      </>
+                    ) : (
+                      <>
+                        Live SMTP email service is not configured on the server
+                        (<code className="bg-amber-100/90 px-1 py-0.5 rounded font-mono text-[10px]">EMAIL_USER</code> /{' '}
+                        <code className="bg-amber-100/90 px-1 py-0.5 rounded font-mono text-[10px]">EMAIL_PASS</code>). Use the
+                        code below to reset your password for now.
+                      </>
+                    )}
                   </p>
                   {generatedCode && (
                     <div className="bg-white/90 border border-amber-200 p-2.5 rounded-xl flex items-center justify-between gap-2">
