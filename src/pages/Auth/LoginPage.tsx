@@ -190,6 +190,21 @@ export function LoginPage({ initialMode }: LoginPageProps) {
       return;
     }
 
+    // Phone number is compulsory on sign-up — used for delivery and OTP sign-in.
+    let signupPhone = '';
+    if (isSignUp) {
+      const digits = phone.replace(/\D/g, '');
+      const national =
+        digits.length === 12 && digits.startsWith('91') ? digits.slice(2)
+          : digits.length === 11 && digits.startsWith('0') ? digits.slice(1)
+            : digits;
+      if (!/^[6-9]\d{9}$/.test(national)) {
+        toast.error('Enter a valid 10-digit mobile number');
+        return;
+      }
+      signupPhone = `+91${national}`;
+    }
+
     try {
       setLoading(true);
 
@@ -201,7 +216,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           name: name.trim(),
           email: cleanEmail,
           password: cleanPassword,
-          phone: phone.trim()
+          phone: signupPhone
         });
 
         if (!res.success) {
@@ -442,7 +457,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           {isSignUp && (
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Full Name
+                Full Name <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -461,12 +476,12 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           {/* Email Address */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Email Address
+              Email Address <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input 
-                type="text" 
+                type="email" 
                 className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-all" 
                 placeholder="you@example.com" 
                 required 
@@ -480,14 +495,17 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           {isSignUp && (
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Phone Number (Optional)
+                Phone Number <span className="text-red-500">*</span>
               </label>
               <div className="relative">
                 <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                 <input 
                   type="tel" 
+                  inputMode="numeric"
+                  autoComplete="tel"
                   className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-all" 
                   placeholder="+91 98451 22345" 
+                  required={isSignUp}
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
                 />
@@ -499,7 +517,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Password
+                Password <span className="text-red-500">*</span>
               </label>
               {!isSignUp && (
                 <button
