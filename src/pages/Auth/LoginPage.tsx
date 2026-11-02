@@ -26,6 +26,13 @@ import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
 
 export type UserRole = 'customer' | 'driver' | 'admin';
 
+/**
+ * Phone OTP sign-in is hidden until Fast2SMS DLT is approved.
+ * Quick SMS (no DLT) costs ₹7 per message; the DLT template route costs ₹0.25.
+ * Flip this to true once FAST2SMS_OTP_TEMPLATE_ID is set on the server.
+ */
+const OTP_LOGIN_ENABLED = false;
+
 export interface LoginPageProps {
   initialRole?: UserRole;
   initialMode?: 'signin' | 'signup';
@@ -398,7 +405,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
         </div>
 
         {/* Sign-in method: password or phone OTP (customers only) */}
-        {!isSignUp && (
+        {!isSignUp && OTP_LOGIN_ENABLED && (
           <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-2xl mb-4 shadow-inner">
             <button
               type="button"
