@@ -25,8 +25,6 @@ import {
 import toast from 'react-hot-toast';
 import { apiGetMe, apiLogout, apiAdminLogin } from '../../services/api';
 import { hasPermission } from './permissions';
-import { NotificationBellDropdown } from '../../components/notifications/NotificationBellDropdown';
-import { autoSyncPushSubscription } from '../../services/pushNotificationService';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -71,7 +69,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         if (res.success && res.user) {
           setAdminUser(res.user);
           localStorage.setItem('adminUser', JSON.stringify(res.user));
-          autoSyncPushSubscription('admin', res.user.email, res.user.name);
         } else if (res && !res.success && (res.message?.includes('token') || res.message?.includes('session') || res.message?.includes('Authentication') || res.code === 'TOKEN_EXPIRED')) {
           localStorage.removeItem('isAdminLoggedIn');
           localStorage.removeItem('adminToken');
@@ -284,9 +281,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
               <span>{adminUser?.role === 'admin' ? 'Administrator' : 'Super Admin'}</span>
             </div>
-
-            {/* Notification Bell Dropdown */}
-            <NotificationBellDropdown role="admin" theme="light" />
 
             {/* Admin Avatar Link to Profile */}
             <Link 

@@ -1,4 +1,4 @@
-import { getResolvedUserEmail } from './notificationService';
+import { getResolvedUserEmail, getResolvedUserPhone, showBrowserNotificationPopup } from './notificationService';
 
 const rawBase = ((import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api').trim().replace(/\/+$/, '');
 const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase}/api`;
@@ -119,6 +119,7 @@ export async function subscribeToPushNotifications(
 
     // 4. Send subscription to Backend
     const email = getResolvedUserEmail(userEmail);
+    const phone = getResolvedUserPhone();
     const name = userName || localStorage.getItem('userName') || (role === 'admin' ? 'Admin' : role === 'driver' ? 'Driver' : 'User');
 
     const subRes = await fetch(`${API_BASE}/push/subscribe`, {
@@ -129,6 +130,7 @@ export async function subscribeToPushNotifications(
         subscription: subscription.toJSON(),
         role,
         email,
+        phone,
         name,
         device: isIOS() ? 'Apple iOS' : 'Android / Web'
       })
@@ -190,13 +192,21 @@ export async function sendTestPushToPhone(
 ): Promise<{ success: boolean; message: string }> {
   try {
     const email = getResolvedUserEmail(userEmail);
+    const phone = getResolvedUserPhone();
     const res = await fetch(`${API_BASE}/push/test`, {
       method: 'POST',
       credentials: 'include',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ role, email })
+      body: JSON.stringify({ role, email, phone })
     });
     const data = await res.json();
+    if (data.success) {
+      // Also trigger a local popup immediately for verification
+      showBrowserNotificationPopup('Shift24 Notification Active', {
+        body: 'Alerts are live! You will receive meal delivery and dispatch popups.',
+        url: '/profile'
+      });
+    }
     return data;
   } catch (err: any) {
     return { success: false, message: err.message || 'Failed to send test push' };

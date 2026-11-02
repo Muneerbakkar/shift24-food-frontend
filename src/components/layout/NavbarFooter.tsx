@@ -2,7 +2,7 @@ import { Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, 
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { getUserNotifications, getResolvedUserEmail } from '../../services/notificationService';
+import { getUserNotifications, getResolvedUserEmail, showBrowserNotificationPopup } from '../../services/notificationService';
 import { 
   isPushSupported, 
   getNotificationPermission, 
@@ -125,7 +125,24 @@ export function Navbar() {
 
   useEffect(() => {
     let isMounted = true;
-    const updateUnread = async () => {
+    const seenNotifsKey = 'shift24_seen_browser_notifs';
+    const getSeenSet = (): Set<string> => {
+      try {
+        const raw = sessionStorage.getItem(seenNotifsKey);
+        return new Set(raw ? JSON.parse(raw) : []);
+      } catch {
+        return new Set();
+      }
+    };
+    const addSeenId = (id: string) => {
+      try {
+        const s = getSeenSet();
+        s.add(id);
+        sessionStorage.setItem(seenNotifsKey, JSON.stringify(Array.from(s)));
+      } catch {}
+    };
+
+    const updateUnread = async (isBackgroundPoll = false) => {
       const isAuth = localStorage.getItem('isLoggedIn') === 'true' || localStorage.getItem('isAdminLoggedIn') === 'true' || localStorage.getItem('isDriverLoggedIn') === 'true';
       if (!isAuth) {
         if (isMounted) setUnreadCount(0);
@@ -133,26 +150,53 @@ export function Navbar() {
       }
       try {
         const notifs = await getUserNotifications();
-        if (isMounted) {
-          setUnreadCount(notifs.filter(n => n.unread).length);
+        if (!isMounted) return;
+        const unread = notifs.filter(n => n.unread);
+        setUnreadCount(unread.length);
+
+        // Check for new delivery / order status notifications and trigger native browser popup
+        if (isBackgroundPoll && unread.length > 0) {
+          const seenSet = getSeenSet();
+          for (const n of unread) {
+            const notifKey = n.id || n.notificationId || `${n.title}-${n.timestamp}`;
+            if (!seenSet.has(notifKey)) {
+              addSeenId(notifKey);
+              // Pop native browser notification for customer
+              showBrowserNotificationPopup(n.title, {
+                body: n.message,
+                url: n.link || '/profile'
+              });
+              toast(n.title + ' — ' + n.message, {
+                duration: 6000,
+                icon: n.status === 'Delivered' ? '🍽️' : '🔔'
+              });
+            }
+          }
         }
       } catch {
         if (isMounted) setUnreadCount(0);
       }
     };
 
-    updateUnread();
-    window.addEventListener('shift24-notifications-updated', updateUnread);
-    window.addEventListener('shift24-subscriptions-updated', updateUnread);
-    window.addEventListener('storage', updateUnread);
-    window.addEventListener('auth-change', updateUnread);
+    updateUnread(false);
+
+    // Live background polling every 8 seconds for real-time order & delivery updates
+    const pollTimer = setInterval(() => {
+      updateUnread(true);
+    }, 8000);
+
+    window.addEventListener('shift24-notifications-updated', () => updateUnread(false));
+    window.addEventListener('shift24-subscriptions-updated', () => updateUnread(false));
+    window.addEventListener('storage', () => updateUnread(false));
+    window.addEventListener('auth-change', () => updateUnread(false));
 
     return () => {
       isMounted = false;
-      window.removeEventListener('shift24-notifications-updated', updateUnread);
-      window.removeEventListener('shift24-subscriptions-updated', updateUnread);
-      window.removeEventListener('storage', updateUnread);
-      window.removeEventListener('auth-change', updateUnread);
+      clearInterval(pollTimer);
+      window.removeEventListener('shift24-notifications-updated', () => updateUnread(false));
+      window.removeEventListener('shift24-subscriptions-updated', () => updateUnread(false));
+      window.removeEventListener('storage', () => updateUnread(false));
+      window.removeEventListener('auth-change', () => updateUnread(false));
     };
   }, [isLoggedIn]);
 

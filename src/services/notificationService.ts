@@ -59,6 +59,57 @@ export function getResolvedUserEmail(userEmailOverride?: string): string {
   return '';
 }
 
+export function getResolvedUserPhone(): string {
+  const direct = localStorage.getItem('userPhone');
+  if (direct && direct.trim()) return direct.trim();
+  try {
+    const rawUser = localStorage.getItem('user');
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed?.phone) return String(parsed.phone).trim();
+    }
+  } catch (e) {}
+  try {
+    const rawSub = localStorage.getItem('activeSubscription');
+    if (rawSub) {
+      const parsed = JSON.parse(rawSub);
+      if (parsed?.customerPhone) return String(parsed.customerPhone).trim();
+    }
+  } catch (e) {}
+  return '';
+}
+
+export async function showBrowserNotificationPopup(
+  title: string,
+  options?: { body?: string; icon?: string; badge?: string; url?: string; tag?: string }
+): Promise<boolean> {
+  if (typeof window === 'undefined' || !('Notification' in window)) return false;
+  if (Notification.permission !== 'granted') return false;
+
+  const notifOptions = {
+    body: options?.body || '',
+    icon: options?.icon || '/icons/icon-192.png',
+    badge: options?.badge || '/icons/badge-72.png',
+    tag: options?.tag || `shift24-${Date.now()}`,
+    data: { url: options?.url || '/profile' }
+  };
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, notifOptions);
+      return true;
+    }
+  } catch (e) {}
+
+  try {
+    new Notification(title, notifOptions);
+    return true;
+  } catch (e) {}
+
+  return false;
+}
+
 export function isUserLoggedIn(): boolean {
   return (
     localStorage.getItem('isLoggedIn') === 'true' ||
