@@ -118,7 +118,9 @@ function getAuthHeaders(customHeaders: Record<string, string> = {}) {
     'Content-Type': 'application/json',
     ...customHeaders
   };
-  if (token) {
+  // Only real JWTs are sent; the stored value is otherwise a session marker and
+  // the httpOnly cookie carries authentication.
+  if (token && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token.trim())) {
     headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;

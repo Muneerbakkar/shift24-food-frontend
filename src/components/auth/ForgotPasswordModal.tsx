@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mail, Lock, KeyRound, Eye, EyeOff, X, ArrowLeft, CheckCircle2, ShieldCheck, AlertCircle, ExternalLink } from 'lucide-react';
+import { Mail, Lock, KeyRound, Eye, EyeOff, X, ArrowLeft, CheckCircle2, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiForgotPassword, apiResetPassword } from '../../services/api';
 
@@ -26,12 +26,6 @@ export function ForgotPasswordModal({
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  // Delivery status feedback
-  const [emailSent, setEmailSent] = useState<boolean | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
-
   // Sync defaultEmail when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -43,10 +37,6 @@ export function ForgotPasswordModal({
       setNewPassword('');
       setConfirmPassword('');
       setLoading(false);
-      setEmailSent(null);
-      setPreviewUrl(null);
-      setGeneratedCode(null);
-      setEmailError(null);
     }
   }, [isOpen, defaultEmail]);
 
@@ -78,16 +68,10 @@ export function ForgotPasswordModal({
         return;
       }
 
-      setEmailSent(res.emailSent === true);
-      setPreviewUrl(res.previewUrl || null);
-      setGeneratedCode(res.resetCode || null);
-      setEmailError(res.emailError || null);
-
-      if (res.emailSent === true) {
-        toast.success(`Verification email sent to ${cleanEmail}! Please check inbox and spam.`, { duration: 6000 });
-      } else {
-        toast.success(`Reset code generated for ${cleanEmail}!`, { duration: 5000 });
-      }
+      toast.success(
+        `If an account exists for ${cleanEmail}, a verification code is on its way. Please check your inbox and spam folder.`,
+        { duration: 6000 }
+      );
 
       setStep('code');
       setResendCooldown(60);
@@ -111,8 +95,8 @@ export function ForgotPasswordModal({
       toast.error('Please enter a new password');
       return;
     }
-    if (newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters long');
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters long');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -233,12 +217,12 @@ export function ForgotPasswordModal({
           ) : (
             /* STEP 2: Verification Code & New Password */
             <form onSubmit={handleResetPassword} className="space-y-4">
-              {emailSent === true ? (
-                <div className="bg-emerald-50 border border-emerald-200/80 p-3 rounded-2xl flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate">
+              <div className="bg-emerald-50 border border-emerald-200/80 p-3 rounded-2xl text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span className="text-slate-700 truncate">
-                      Email dispatched to <strong className="text-emerald-900">{email}</strong>
+                      Code sent to <strong className="text-emerald-900">{email}</strong>
                     </span>
                   </div>
                   <button
@@ -249,64 +233,11 @@ export function ForgotPasswordModal({
                     Change
                   </button>
                 </div>
-              ) : (
-                <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-900 space-y-2 shadow-2xs">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 font-bold text-amber-950">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>{emailError ? 'Email Delivery Issue' : 'SMTP Email Setup Notice'}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setStep('email')}
-                      className="text-amber-800 hover:underline font-bold text-[11px]"
-                    >
-                      Change Email
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-amber-800 leading-relaxed">
-                    {emailError ? (
-                      <>
-                        Live email could not be sent: <span className="font-semibold">{emailError}</span>. Use the code below
-                        to reset your password for now.
-                      </>
-                    ) : (
-                      <>
-                        Live SMTP email service is not configured on the server
-                        (<code className="bg-amber-100/90 px-1 py-0.5 rounded font-mono text-[10px]">EMAIL_USER</code> /{' '}
-                        <code className="bg-amber-100/90 px-1 py-0.5 rounded font-mono text-[10px]">EMAIL_PASS</code>). Use the
-                        code below to reset your password for now.
-                      </>
-                    )}
-                  </p>
-                  {generatedCode && (
-                    <div className="bg-white/90 border border-amber-200 p-2.5 rounded-xl flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-semibold text-slate-800">
-                        Code: <strong className="font-mono text-sm tracking-widest text-emerald-700 ml-1">{generatedCode}</strong>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setResetCode(generatedCode)}
-                        className="text-[11px] font-extrabold bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                      >
-                        Auto-fill Code
-                      </button>
-                    </div>
-                  )}
-                  {previewUrl && (
-                    <div className="pt-0.5">
-                      <a
-                        href={previewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[11px] text-amber-700 hover:text-amber-900 underline font-semibold inline-flex items-center gap-1"
-                      >
-                        <ExternalLink className="w-3 h-3" /> View Generated Email Preview
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
+                <p className="text-[11px] text-slate-500 leading-relaxed mt-1.5">
+                  Enter the 6-digit code from the email. If it has not arrived within a few minutes, check your spam
+                  folder or contact support.
+                </p>
+              </div>
 
               {/* 6-Digit Code */}
               <div>
@@ -336,7 +267,7 @@ export function ForgotPasswordModal({
                     type={showNewPassword ? 'text' : 'password'}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="At least 6 characters"
+                    placeholder="At least 8 characters"
                     required
                     className="w-full pl-10 pr-11 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-slate-50 focus:bg-white transition-all"
                   />

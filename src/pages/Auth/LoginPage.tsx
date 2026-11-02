@@ -84,7 +84,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
   // Shared customer-session setup (used by password login, signup and OTP login)
   const startCustomerSession = (res: any, fallbackEmail = '') => {
     localStorage.removeItem('activeSubscription');
-    localStorage.setItem('token', res.token);
+    localStorage.setItem('token', 'session');
     localStorage.setItem('isLoggedIn', 'true');
     localStorage.setItem('user', JSON.stringify(res.user));
     localStorage.setItem('userName', res.user?.name || 'Customer');
@@ -225,7 +225,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
         }
 
         localStorage.removeItem('activeSubscription');
-        localStorage.setItem('token', res.token);
+        localStorage.setItem('token', 'session');
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('user', JSON.stringify(res.user));
         localStorage.setItem('userName', res.user?.name || name.trim());
@@ -255,10 +255,10 @@ export function LoginPage({ initialMode }: LoginPageProps) {
         // (built-in admin/staff/kitchen and any custom role created in Roles & Permissions).
         if (role && role !== 'customer' && role !== 'driver') {
           // Admin Session
-          localStorage.setItem('adminToken', res.token);
+          localStorage.setItem('adminToken', 'session');
           localStorage.setItem('isAdminLoggedIn', 'true');
           localStorage.setItem('adminUser', JSON.stringify(res.user));
-          localStorage.setItem('token', res.token);
+          localStorage.setItem('token', 'session');
           localStorage.setItem('isLoggedIn', 'true');
           localStorage.setItem('user', JSON.stringify(res.user));
           window.dispatchEvent(new Event('auth-change'));
@@ -270,7 +270,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
 
         if (role === 'driver') {
           // Driver Session
-          localStorage.setItem('driverToken', res.token);
+          localStorage.setItem('driverToken', 'session');
           localStorage.setItem('isDriverLoggedIn', 'true');
           localStorage.setItem('driverUser', JSON.stringify(res.driver || res.user));
           window.dispatchEvent(new Event('auth-change'));
@@ -282,7 +282,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
 
         // Customer Session (default)
         localStorage.removeItem('activeSubscription');
-        localStorage.setItem('token', res.token);
+        localStorage.setItem('token', 'session');
         localStorage.setItem('isLoggedIn', 'true');
         localStorage.setItem('user', JSON.stringify(res.user));
         localStorage.setItem('userName', res.user.name || 'Customer');
@@ -301,10 +301,10 @@ export function LoginPage({ initialMode }: LoginPageProps) {
       try {
         const adminRes = await apiAdminLogin(cleanEmail, cleanPassword);
         if (adminRes && adminRes.success && adminRes.user) {
-          localStorage.setItem('adminToken', adminRes.token);
+          localStorage.setItem('adminToken', 'session');
           localStorage.setItem('isAdminLoggedIn', 'true');
           localStorage.setItem('adminUser', JSON.stringify(adminRes.user));
-          localStorage.setItem('token', adminRes.token);
+          localStorage.setItem('token', 'session');
           localStorage.setItem('isLoggedIn', 'true');
           localStorage.setItem('user', JSON.stringify(adminRes.user));
           window.dispatchEvent(new Event('auth-change'));

@@ -3,6 +3,13 @@
 const rawBase = ((import.meta as any).env?.VITE_API_BASE_URL || '/api').trim().replace(/\/+$/, '');
 const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase}/api`;
 
+// The JWT is delivered in an httpOnly cookie, so the browser keeps no copy of
+// it: localStorage only holds a non-secret marker so the UI can tell whether a
+// session exists. Only a real, JWT-shaped value is sent as a bearer token, for
+// sessions created before this change.
+const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+export const SESSION_MARKER = 'session';
+
 function getAuthHeaders(customHeaders: Record<string, string> = {}) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -18,7 +25,7 @@ function getAuthHeaders(customHeaders: Record<string, string> = {}) {
     ? (localStorage.getItem('adminToken') || localStorage.getItem('token'))
     : (localStorage.getItem('token') || localStorage.getItem('adminToken'));
 
-  const token = (rawToken && rawToken !== 'null' && rawToken !== 'undefined' && rawToken.trim() !== '') ? rawToken.trim() : null;
+  const token = (rawToken && JWT_SHAPE.test(rawToken.trim())) ? rawToken.trim() : null;
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -108,7 +115,7 @@ export async function apiAdminLogin(email: string, password?: string) {
 // Get Current User Profile (JWT/Session verification)
 export async function apiGetMe(tokenOverride?: string) {
   const customHeaders: Record<string, string> = {};
-  if (tokenOverride) {
+  if (tokenOverride && JWT_SHAPE.test(String(tokenOverride).trim())) {
     customHeaders['Authorization'] = `Bearer ${tokenOverride}`;
   }
   const res = await fetch(`${API_BASE}/auth/me`, {
