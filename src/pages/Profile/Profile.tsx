@@ -241,6 +241,7 @@ export function ProfilePage() {
     totalEarned: number;
     pendingEarnings: number;
     referrals: any[];
+    invitedBy?: any[];
   } | null>(null);
   const [isLoadingReferrals, setIsLoadingReferrals] = useState(false);
   const [hasCopiedCode, setHasCopiedCode] = useState(false);
@@ -2358,6 +2359,31 @@ export function ProfilePage() {
                         <span className="text-[10px] text-emerald-700 font-semibold">Cash paid out</span>
                       </div>
                     </div>
+
+                    {/* Invited-by card: shown when this customer joined with a friend's code */}
+                    {referralData?.invitedBy && referralData.invitedBy.length > 0 && (
+                      <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 sm:p-5">
+                        <div className="flex items-start gap-3">
+                          <span className="p-2 bg-white rounded-xl border border-emerald-100 text-emerald-600 shrink-0">
+                            <Gift className="w-4 h-4" />
+                          </span>
+                          <div className="space-y-1 min-w-0">
+                            <p className="text-sm font-bold text-slate-900">You joined with a friend&apos;s code</p>
+                            {referralData.invitedBy.map((inv: any) => (
+                              <p key={inv.referralId} className="text-xs text-slate-600">
+                                Invited by <strong className="text-slate-900">{inv.referrerName}</strong> using code{' '}
+                                <span className="font-mono font-bold text-emerald-700">{inv.referralCode}</span>
+                                {inv.planTitle ? ` — ${inv.planTitle} (${inv.duration})` : ''}.
+                              </p>
+                            ))}
+                            <p className="text-[11px] text-slate-500">
+                              Your friend receives the ₹500 reward once your 30-day plan completes. You can still invite
+                              friends with your own code above.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Referred Friends Table */}
                     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
