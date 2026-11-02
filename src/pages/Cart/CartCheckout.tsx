@@ -181,6 +181,15 @@ export function CartCheckout() {
     // Razorpay Online Gateway (Card or UPI)
     setIsProcessing(true);
     try {
+      const token = localStorage.getItem('token');
+      const isJwt = Boolean(token && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token.trim()));
+      if (!token || !isJwt) {
+        setIsProcessing(false);
+        toast.error('Authentication required. Please log in or create an account to complete checkout.');
+        navigate('/login', { state: { from: { pathname: window.location.pathname } } });
+        return;
+      }
+
       const amountInPaise = Math.round(total * 100);
       const orderRes = await createRazorpayOrder({
         amount: amountInPaise,
@@ -244,6 +253,17 @@ export function CartCheckout() {
       });
     } catch (err: any) {
       setIsProcessing(false);
+      const msg = err?.message || '';
+      if (
+        msg.includes('Authentication required') ||
+        msg.includes('Session expired') ||
+        msg.includes('Please log in') ||
+        msg.includes('401')
+      ) {
+        toast.error('Session expired or login required. Please sign in to complete checkout.');
+        navigate('/login', { state: { from: { pathname: window.location.pathname } } });
+        return;
+      }
       toast.error(err.message || 'Failed to initialize payment gateway.');
     }
   };

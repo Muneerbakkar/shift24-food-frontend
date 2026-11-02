@@ -453,6 +453,21 @@ export function CheckoutDetails() {
           console.warn('Failed to fetch latest user profile:', err);
         }
       }
+
+      // Restore saved draft form data if user was redirected from login
+      try {
+        const draftRaw = sessionStorage.getItem('shift24_checkout_draft');
+        if (draftRaw) {
+          const draft = JSON.parse(draftRaw);
+          if (draft.formData) setFormData(prev => ({ ...prev, ...draft.formData }));
+          if (draft.addressFields) setAddressFields(prev => ({ ...prev, ...draft.addressFields }));
+          if (draft.mapCoords) setMapCoords(draft.mapCoords);
+          if (draft.selectedSlot) setSelectedSlot(draft.selectedSlot);
+          if (draft.deliverySlot) setDeliverySlot(draft.deliverySlot);
+          if (draft.selectedDays) setSelectedDays(draft.selectedDays);
+          sessionStorage.removeItem('shift24_checkout_draft');
+        }
+      } catch (e) {}
     };
 
     loadUserAndAddresses();
@@ -955,6 +970,25 @@ export function CheckoutDetails() {
       return;
     }
 
+    // Require authentication before placing order / initiating payment
+    const token = localStorage.getItem('token');
+    const isJwt = Boolean(token && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token.trim()));
+    if (!token || !isJwt) {
+      try {
+        sessionStorage.setItem('shift24_checkout_draft', JSON.stringify({
+          formData,
+          addressFields,
+          mapCoords,
+          selectedSlot,
+          deliverySlot,
+          selectedDays
+        }));
+      } catch (e) {}
+      toast.error('Please log in or create an account to complete your subscription.');
+      navigate('/login', { state: { from: { pathname: window.location.pathname + window.location.search } } });
+      return;
+    }
+
     // Cash on Delivery
     if (paymentMethod === 'cod') {
       setIsProcessing(true);
@@ -1046,6 +1080,17 @@ export function CheckoutDetails() {
     } catch (paymentErr: any) {
       console.error('Razorpay initialization error:', paymentErr);
       setIsProcessing(false);
+      const msg = paymentErr?.message || '';
+      if (
+        msg.includes('Authentication required') ||
+        msg.includes('Session expired') ||
+        msg.includes('Please log in') ||
+        msg.includes('401')
+      ) {
+        toast.error('Session expired or login required. Please log in to complete your subscription.');
+        navigate('/login', { state: { from: { pathname: window.location.pathname + window.location.search } } });
+        return;
+      }
       toast.error(paymentErr.message || 'Failed to initialize Razorpay checkout.');
     }
   };
@@ -1144,15 +1189,29 @@ export function CheckoutDetails() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between mb-6">
-                <div>
+              <div className="flex flex-col mb-6">
+                <div className="flex items-center justify-between">
                   <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Delivery Details</h2>
-                  {currentUser && (
-                    <p className="text-xs text-emerald-600 font-medium mt-0.5">
-                      Auto-filled from your profile ({currentUser.email || currentUser.name})
-                    </p>
-                  )}
                 </div>
+                {currentUser ? (
+                  <p className="text-xs text-emerald-600 font-medium mt-1">
+                    ✓ Auto-filled from your profile ({currentUser.email || currentUser.name})
+                  </p>
+                ) : (
+                  <div className="mt-3 p-3.5 bg-amber-50 border border-amber-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900">
+                    <div>
+                      <p className="font-semibold">⚠️ Account required to purchase a subscription</p>
+                      <p className="text-amber-700 text-[11px] mt-0.5">Please sign in to connect this plan to your dashboard and manage daily meals.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/login', { state: { from: { pathname: window.location.pathname + window.location.search } } })}
+                      className="shrink-0 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-medium rounded-lg transition shadow-sm"
+                    >
+                      Sign In / Register
+                    </button>
+                  </div>
+                )}
               </div>
 
               <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); handleCompleteOrder(); }}>
