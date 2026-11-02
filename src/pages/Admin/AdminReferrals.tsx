@@ -79,7 +79,7 @@ export function AdminReferrals() {
         adminNotes: adminNotes.trim()
       });
       if (res && res.success) {
-        toast.success(`Marked ₹500 paid for ${payoutModalReferral.referrerName}`);
+        toast.success(`Marked ₹${payoutModalReferral.rewardAmount || 500} paid for ${payoutModalReferral.referrerName}`);
         setPayoutModalReferral(null);
         loadData();
       } else {
@@ -89,6 +89,27 @@ export function AdminReferrals() {
       toast.error(e.message || 'Error processing payout');
     } finally {
       setSubmittingPayout(false);
+    }
+  };
+
+  // Copy everything needed to make the GPay/UPI transfer from your phone.
+  const handleCopyPayoutDetails = async () => {
+    if (!payoutModalReferral) return;
+    const r = payoutModalReferral;
+    const lines = [
+      `Referral: ${r.referralId || r._id}`,
+      `Pay: ₹${r.rewardAmount || 500}`,
+      `Name: ${r.referrerName}`,
+      `GPay/UPI number: ${r.referrerPhone || 'not added'}`,
+      `Email: ${r.referrerEmail || '—'}`,
+      `Referred: ${r.refereeName}`,
+      `Plan: ${r.planTitle} (${r.duration})`
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast.success('Payout details copied — paste them in GPay/UPI');
+    } catch {
+      toast.error('Could not copy — long-press the details to copy manually');
     }
   };
 
@@ -348,8 +369,8 @@ export function AdminReferrals() {
                   <Gift className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-base">Record ₹500 Referral Payout</h3>
-                  <p className="text-xs text-slate-500">Confirm you transferred ₹500 to the referrer</p>
+                  <h3 className="font-bold text-slate-900 text-base">Record ₹{payoutModalReferral.rewardAmount || 500} Referral Payout</h3>
+                  <p className="text-xs text-slate-500">Confirm you transferred ₹{payoutModalReferral.rewardAmount || 500} to the referrer</p>
                 </div>
               </div>
               <button
@@ -364,12 +385,20 @@ export function AdminReferrals() {
             {/* Referrer Details */}
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
               <div className="flex justify-between">
+                <span className="text-slate-500">Referral ID:</span>
+                <span className="font-bold text-slate-900 font-mono">{payoutModalReferral.referralId || payoutModalReferral._id}</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-500">Referrer Name:</span>
                 <span className="font-bold text-slate-900">{payoutModalReferral.referrerName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Referrer Phone (GPay/UPI):</span>
                 <span className="font-bold text-emerald-700 font-mono text-sm">{payoutModalReferral.referrerPhone || 'Check profile'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Referrer Email:</span>
+                <span className="font-semibold text-slate-800 break-all text-right ml-3">{payoutModalReferral.referrerEmail || '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Friend Referred:</span>
@@ -381,17 +410,25 @@ export function AdminReferrals() {
               </div>
               <div className="flex justify-between pt-1 border-t border-slate-200 text-sm">
                 <span className="font-bold text-slate-900">Reward Due:</span>
-                <span className="font-black text-emerald-700">₹500</span>
+                <span className="font-black text-emerald-700">₹{payoutModalReferral.rewardAmount || 500}</span>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleCopyPayoutDetails}
+              className="w-full py-2 bg-white border border-emerald-200 text-emerald-700 hover:bg-emerald-50 rounded-xl font-bold text-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Copy payout details (name, UPI number, amount)
+            </button>
 
             {/* Payment Details Form */}
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   Payment Reference (UPI ID / GPay Ref ID)
-                </label>
-                <input
+                </label>                <input
                   type="text"
                   placeholder="e.g. GPay-402910384 or UPI Transaction ID"
                   value={paymentRef}
@@ -429,7 +466,7 @@ export function AdminReferrals() {
                 onClick={handleConfirmPayout}
                 className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
               >
-                {submittingPayout ? 'Recording...' : 'Confirm ₹500 Paid'}
+                {submittingPayout ? 'Recording...' : `Confirm ₹${payoutModalReferral.rewardAmount || 500} Paid`}
               </button>
             </div>
           </div>
