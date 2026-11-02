@@ -1,4 +1,4 @@
-import { Zap, Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone } from 'lucide-react';
+import { Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -142,10 +142,7 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10">
         <div className="flex justify-between items-center h-20 relative">
           <Link to="/" className="flex items-center gap-2 z-10">
-            <div className="bg-emerald-500 p-1.5 rounded-lg flex items-center justify-center shrink-0">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-xl tracking-tight text-slate-800 uppercase">SHIFT<span className="text-emerald-500">24</span></span>
+            <span className="font-extrabold text-2xl tracking-tight text-black">Shift<span className="text-emerald-500">24</span></span>
           </Link>
           
           <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 gap-8 items-center text-sm font-medium">
@@ -252,10 +249,7 @@ export function Navbar() {
       >
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <Link to="/" onClick={() => setIsOpen(false)} className="flex items-center gap-2">
-            <div className="bg-emerald-500 p-1.5 rounded-lg flex items-center justify-center shrink-0">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-xl tracking-tight text-slate-800 uppercase">SHIFT<span className="text-emerald-500">24</span></span>
+            <span className="font-extrabold text-2xl tracking-tight text-black">Shift<span className="text-emerald-500">24</span></span>
           </Link>
           <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-slate-700 bg-slate-50 rounded-full p-2">
             <X className="w-5 h-5" />
@@ -308,10 +302,7 @@ export function Footer() {
           {/* Logo Column */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-2.5">
-              <div className="bg-emerald-500 p-2 rounded-xl">
-                <Zap className="w-6 h-6 text-white" />
-              </div>
-              <span className="font-bold text-xl tracking-tight text-slate-800 uppercase">SHIFT<span className="text-emerald-500">24</span></span>
+              <span className="font-extrabold text-2xl tracking-tight text-black">Shift<span className="text-emerald-500">24</span></span>
             </Link>
           </div>
 
