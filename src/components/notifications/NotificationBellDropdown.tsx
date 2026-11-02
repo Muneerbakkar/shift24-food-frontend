@@ -27,6 +27,7 @@ import {
   isPushSupported, 
   getNotificationPermission, 
   subscribeToPushNotifications,
+  autoSyncPushSubscription,
   sendTestPushToPhone 
 } from '../../services/pushNotificationService';
 
@@ -60,15 +61,17 @@ export function NotificationBellDropdown({ role, theme = 'light' }: Notification
   useEffect(() => {
     loadNotifs();
 
-    // Check push status
-    if (isPushSupported()) {
-      setIsPushEnabled(getNotificationPermission() === 'granted');
+    // Check push status and background-sync with backend if permission is already granted
+    if (isPushSupported() && getNotificationPermission() === 'granted') {
+      setIsPushEnabled(true);
+      const ctx = getCurrentUserContext();
+      autoSyncPushSubscription(activeRole, ctx.email, ctx.name);
     }
 
     const handleUpdate = () => {
       loadNotifs();
-      if (isPushSupported()) {
-        setIsPushEnabled(getNotificationPermission() === 'granted');
+      if (isPushSupported() && getNotificationPermission() === 'granted') {
+        setIsPushEnabled(true);
       }
     };
 
@@ -123,26 +126,22 @@ export function NotificationBellDropdown({ role, theme = 'light' }: Notification
   const handleTogglePush = async () => {
     setPushLoading(true);
     try {
-      if (isPushEnabled) {
-        const res = await sendTestPushToPhone(activeRole);
-        if (res.success) {
-          toast.success('Test alert sent to your device!');
+      if (!isPushSupported()) {
+        toast.error('Push notifications are not supported on this browser.');
+        return;
+      }
+      const ctx = getCurrentUserContext();
+      const res = await subscribeToPushNotifications(activeRole, ctx.email, ctx.name);
+      if (res.success) {
+        setIsPushEnabled(true);
+        const testRes = await sendTestPushToPhone(activeRole, ctx.email);
+        if (testRes.success) {
+          toast.success('Alerts active! Test notification dispatched.');
         } else {
-          toast.success('Alerts are already active on this device.');
+          toast.success(`${activeRole === 'admin' ? 'Admin' : activeRole === 'driver' ? 'Driver' : 'Live'} push alerts enabled!`);
         }
       } else {
-        if (!isPushSupported()) {
-          toast.error('Push notifications are not supported on this browser.');
-          return;
-        }
-        const ctx = getCurrentUserContext();
-        const res = await subscribeToPushNotifications(activeRole, ctx.email, ctx.name);
-        if (res.success) {
-          setIsPushEnabled(true);
-          toast.success(`${activeRole === 'admin' ? 'Admin' : activeRole === 'driver' ? 'Driver' : 'Live'} push alerts enabled!`);
-        } else {
-          toast.error(res.message || 'Could not enable alerts. Check browser permissions.');
-        }
+        toast.error(res.message || 'Could not enable alerts. Check browser permissions.');
       }
     } catch {
       toast.error('Failed to enable push alerts');

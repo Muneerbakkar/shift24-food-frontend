@@ -7,6 +7,7 @@ import {
   isPushSupported, 
   getNotificationPermission, 
   subscribeToPushNotifications,
+  autoSyncPushSubscription,
   sendTestPushToPhone 
 } from '../../services/pushNotificationService';
 import { canPromptInstall, isAppInstalled, isIOSDevice, promptInstall, subscribeInstallPrompt } from '../../services/installPrompt';
@@ -73,13 +74,18 @@ export function Navbar() {
     }
   };
 
-  // Push notification status sync
+  // Push notification status sync & auto-registration
   useEffect(() => {
     if (!isPushSupported()) return;
 
     const syncPush = () => {
       const perm = getNotificationPermission();
-      setIsPushEnabled(perm === 'granted');
+      const granted = perm === 'granted';
+      setIsPushEnabled(granted);
+      if (granted) {
+        const email = getResolvedUserEmail();
+        autoSyncPushSubscription('customer', email);
+      }
     };
 
     syncPush();
@@ -88,24 +94,6 @@ export function Navbar() {
   }, []);
 
   const handleEnablePush = async () => {
-    if (isPushEnabled) {
-      setPushLoading(true);
-      try {
-        const email = getResolvedUserEmail();
-        const res = await sendTestPushToPhone('customer', email);
-        if (res.success) {
-          toast.success('Test notification sent to your device!');
-        } else {
-          toast.success('Notifications are active on this device.');
-        }
-      } catch {
-        toast.success('Notifications are active on this device.');
-      } finally {
-        setPushLoading(false);
-      }
-      return;
-    }
-
     setPushLoading(true);
     try {
       if (!isPushSupported()) {
@@ -119,7 +107,12 @@ export function Navbar() {
       const res = await subscribeToPushNotifications('customer', email, name);
       if (res.success) {
         setIsPushEnabled(true);
-        toast.success('Push notifications enabled successfully!');
+        const testRes = await sendTestPushToPhone('customer', email);
+        if (testRes.success) {
+          toast.success('Push notifications active! Test alert sent.');
+        } else {
+          toast.success('Push notifications enabled successfully!');
+        }
       } else {
         toast.error(res.message || 'Could not enable notifications. Check browser permissions.');
       }

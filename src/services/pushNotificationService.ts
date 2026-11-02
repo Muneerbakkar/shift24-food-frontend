@@ -3,6 +3,31 @@ import { getResolvedUserEmail } from './notificationService';
 const rawBase = ((import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api').trim().replace(/\/+$/, '');
 const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase}/api`;
 
+const JWT_SHAPE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+function getAuthHeaders(customHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...customHeaders
+  };
+
+  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  const isDriverRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/driver');
+  const rawToken = isAdminRoute
+    ? (localStorage.getItem('adminToken') || localStorage.getItem('token'))
+    : isDriverRoute
+    ? (localStorage.getItem('driverToken') || localStorage.getItem('token'))
+    : (localStorage.getItem('token') || localStorage.getItem('adminToken'));
+
+  const token = (rawToken && JWT_SHAPE.test(rawToken.trim())) ? rawToken.trim() : null;
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -69,10 +94,13 @@ export async function subscribeToPushNotifications(
     }
 
     // 2. Fetch VAPID public key
-    const vapidRes = await fetch(`${API_BASE}/push/vapid-public-key`);
+    const vapidRes = await fetch(`${API_BASE}/push/vapid-public-key`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
     const vapidData = await vapidRes.json();
     if (!vapidData.success || !vapidData.publicKey) {
-      throw new Error('Could not retrieve VAPID public key from backend');
+      throw new Error(vapidData.message || 'Could not retrieve VAPID public key from backend');
     }
 
     const applicationServerKey = urlBase64ToUint8Array(vapidData.publicKey);
@@ -91,11 +119,12 @@ export async function subscribeToPushNotifications(
 
     // 4. Send subscription to Backend
     const email = getResolvedUserEmail(userEmail);
-    const name = userName || localStorage.getItem('userName') || 'User';
+    const name = userName || localStorage.getItem('userName') || (role === 'admin' ? 'Admin' : role === 'driver' ? 'Driver' : 'User');
 
     const subRes = await fetch(`${API_BASE}/push/subscribe`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         subscription: subscription.toJSON(),
         role,
@@ -109,13 +138,26 @@ export async function subscribeToPushNotifications(
     if (subData.success) {
       localStorage.setItem(`shift24_push_enabled_${role}`, 'true');
       window.dispatchEvent(new Event('shift24-push-status-changed'));
-      return { success: true, message: 'Phone push notifications successfully enabled!' };
+      return { success: true, message: 'Push notifications successfully enabled!' };
     } else {
       throw new Error(subData.message || 'Failed to register subscription on server');
     }
   } catch (err: any) {
     console.warn('[Push] Failed to enable push notifications:', err);
     return { success: false, message: err.message || 'Error subscribing to notifications' };
+  }
+}
+
+export async function autoSyncPushSubscription(
+  role: 'customer' | 'admin' | 'driver' = 'customer',
+  userEmail?: string,
+  userName?: string
+): Promise<void> {
+  if (!isPushSupported() || Notification.permission !== 'granted') return;
+  try {
+    await subscribeToPushNotifications(role, userEmail, userName);
+  } catch (err) {
+    console.debug('[Push] Background sync skipped:', err);
   }
 }
 
@@ -127,7 +169,8 @@ export async function unsubscribeFromPushNotifications(role: string = 'customer'
     if (subscription) {
       await fetch(`${API_BASE}/push/unsubscribe`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: getAuthHeaders(),
         body: JSON.stringify({ endpoint: subscription.endpoint })
       });
       await subscription.unsubscribe();
@@ -149,7 +192,8 @@ export async function sendTestPushToPhone(
     const email = getResolvedUserEmail(userEmail);
     const res = await fetch(`${API_BASE}/push/test`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      headers: getAuthHeaders(),
       body: JSON.stringify({ role, email })
     });
     const data = await res.json();
