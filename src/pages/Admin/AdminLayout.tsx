@@ -20,10 +20,12 @@ import {
   TrendingUp,
   Truck,
   Settings,
-  Gift
+  Gift,
+  Activity
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiGetMe, apiLogout, apiAdminLogin } from '../../services/api';
+import { hasPermission } from './permissions';
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -31,7 +33,7 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [adminUser, setAdminUser] = useState<{ name?: string; email?: string; role?: string } | null>(null);
+  const [adminUser, setAdminUser] = useState<{ name?: string; email?: string; role?: string; permissions?: string[] } | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -112,21 +114,25 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     navigate('/admin/login');
   };
 
-  const navItems = [
-    { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
-    { label: 'Sales & Revenue', path: '/admin/sales', icon: TrendingUp },
-    { label: 'Subscriptions', path: '/admin/subscriptions', icon: Repeat },
-    { label: 'Orders & Dispatch', path: '/admin/orders', icon: ShoppingBag },
-    { label: 'Drivers', path: '/admin/drivers', icon: Truck },
-    { label: 'Kitchen Board', path: '/admin/kitchen', icon: ChefHat },
-    { label: 'Menu & Plans', path: '/admin/menu', icon: UtensilsCrossed },
-    { label: 'Ingredient Purchases', path: '/admin/purchases', icon: Receipt },
-    { label: 'Operational Expenses', path: '/admin/expenses', icon: Wallet },
-    { label: 'Customers', path: '/admin/customers', icon: Users },
-    { label: 'Referrals & Rewards', path: '/admin/referrals', icon: Gift },
-    { label: 'Users', path: '/admin/users', icon: UserCheck },
-    { label: 'Settings', path: '/admin/settings', icon: Settings },
+  const allNavItems = [
+    { label: 'Dashboard', path: '/admin', icon: LayoutDashboard, permission: 'dashboard' },
+    { label: 'Sales & Revenue', path: '/admin/sales', icon: TrendingUp, permission: 'sales' },
+    { label: 'Subscriptions', path: '/admin/subscriptions', icon: Repeat, permission: 'subscriptions' },
+    { label: 'Orders & Dispatch', path: '/admin/orders', icon: ShoppingBag, permission: 'orders' },
+    { label: 'Drivers', path: '/admin/drivers', icon: Truck, permission: 'drivers' },
+    { label: 'Kitchen Board', path: '/admin/kitchen', icon: ChefHat, permission: 'kitchen' },
+    { label: 'Menu & Plans', path: '/admin/menu', icon: UtensilsCrossed, permission: 'menu' },
+    { label: 'Ingredient Purchases', path: '/admin/purchases', icon: Receipt, permission: 'purchases' },
+    { label: 'Operational Expenses', path: '/admin/expenses', icon: Wallet, permission: 'expenses' },
+    { label: 'Customers', path: '/admin/customers', icon: Users, permission: 'customers' },
+    { label: 'Referrals & Rewards', path: '/admin/referrals', icon: Gift, permission: 'referrals' },
+    { label: 'Users', path: '/admin/users', icon: UserCheck, permission: 'users' },
+    { label: 'Activity Log', path: '/admin/activity', icon: Activity, permission: 'activity' },
+    { label: 'Settings', path: '/admin/settings', icon: Settings, permission: 'settings' },
   ];
+
+  // Staff members only see the sections granted on their user record.
+  const navItems = allNavItems.filter(item => hasPermission(adminUser, item.permission));
 
   const isActive = (path: string) => {
     if (path === '/admin') {

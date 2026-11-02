@@ -11,7 +11,8 @@ import {
   ArrowRight,
   Sparkles,
   Calendar,
-  Coins
+  Coins,
+  Activity
 } from 'lucide-react';
 import { 
   getAdminSubscriptions, 
@@ -32,9 +33,20 @@ import {
   fetchCustomers, 
   fetchSales,
   updateBackendOrderStatus,
-  generateBackendOrders
+  generateBackendOrders,
+  fetchRecentActivity
 } from '../../services/api';
 import toast from 'react-hot-toast';
+
+const timeAgo = (iso: string) => {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
 
 export function AdminDashboard() {
   const [subscriptions, setSubscriptions] = useState<AdminSubscription[]>(() => getAdminSubscriptions());
@@ -44,6 +56,13 @@ export function AdminDashboard() {
   const [commissionRate, setCommissionRate] = useState<number>(() => getAdminCommissionRate());
   const [plans, setPlans] = useState<any[]>(() => getAdminPlans());
   const [backendMetrics, setBackendMetrics] = useState<{ totalRevenue?: number; totalCommission?: number } | null>(null);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchRecentActivity(6)
+      .then(res => { if (res?.success) setRecentActivity(res.data || []); })
+      .catch(() => {});
+  }, []);
 
   const getLocalDateISO = (d: Date): string => {
     const y = d.getFullYear();
@@ -823,6 +842,48 @@ export function AdminDashboard() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-900">Recent Activity</h3>
+            <p className="text-xs text-slate-500">Latest changes made in the admin panel and on the customer site</p>
+          </div>
+          <Link
+            to="/admin/activity"
+            className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+          >
+            <span>View all</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {recentActivity.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-400">
+            No activity recorded yet.
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {recentActivity.map(item => (
+              <li key={item._id} className="py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                    <Activity className="w-4 h-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-slate-800 truncate">{item.action}</p>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {item.actorName || item.actorEmail} · {item.entity}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] text-slate-400 whitespace-nowrap">{timeAgo(item.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

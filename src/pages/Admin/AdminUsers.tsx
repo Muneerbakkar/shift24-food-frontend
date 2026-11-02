@@ -29,6 +29,7 @@ import {
   apiUpdateAdminUser, 
   apiDeleteAdminUser 
 } from '../../services/api';
+import { ADMIN_PERMISSIONS, ALL_PERMISSION_KEYS } from './permissions';
 
 interface UserRecord {
   _id: string;
@@ -37,6 +38,7 @@ interface UserRecord {
   email: string;
   phone?: string;
   role: 'admin' | 'staff' | 'kitchen' | 'customer';
+  permissions?: string[];
   adminTitle?: string;
   status?: 'active' | 'inactive';
   totalSpent?: number;
@@ -66,7 +68,15 @@ export function AdminUsers() {
   const [formStatus, setFormStatus] = useState<'active' | 'inactive'>('active');
   const [formPassword, setFormPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [formPermissions, setFormPermissions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  const togglePermission = (key: string) => {
+    setFormPermissions(prev => (prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]));
+  };
+
+  const grantAllPermissions = () => setFormPermissions(ALL_PERMISSION_KEYS);
+  const revokeAllPermissions = () => setFormPermissions([]);
 
   // Delete Confirmation State
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserRecord | null>(null);
@@ -88,7 +98,8 @@ export function AdminUsers() {
     try {
       const res = await apiGetAdminUsers();
       if (res.success && Array.isArray(res.data)) {
-        setUsers(res.data);
+        // Customers are managed on their own page — this screen is the team.
+        setUsers(res.data.filter((u: UserRecord) => u.role !== 'customer'));
       } else {
         toast.error(res.message || 'Failed to load users');
       }
@@ -114,6 +125,7 @@ export function AdminUsers() {
     setFormStatus('active');
     setFormPassword('');
     setShowPassword(false);
+    setFormPermissions([]);
     setIsModalOpen(true);
   };
 
@@ -133,6 +145,7 @@ export function AdminUsers() {
     setFormStatus(user.status || 'active');
     setFormPassword('');
     setShowPassword(false);
+    setFormPermissions(Array.isArray((user as any).permissions) ? [...(user as any).permissions] : []);
     setIsModalOpen(true);
   };
 
@@ -167,7 +180,8 @@ export function AdminUsers() {
           password: formPassword,
           phone: formPhone.trim(),
           role: formRole,
-          adminTitle: formAdminTitle.trim() || undefined
+          adminTitle: formAdminTitle.trim() || undefined,
+          permissions: formPermissions
         });
 
         if (res.success) {
@@ -197,7 +211,8 @@ export function AdminUsers() {
           phone: formPhone.trim(),
           role: formRole,
           adminTitle: formAdminTitle.trim(),
-          status: formStatus
+          status: formStatus,
+          permissions: formPermissions
         };
         if (formPassword.trim()) {
           updateData.password = formPassword.trim();
@@ -258,9 +273,9 @@ export function AdminUsers() {
 
   // Metric counts
   const totalUsers = users.length;
-  const customerCount = users.filter(u => u.role === 'customer').length;
   const superAdmins = users.filter(u => u.role === 'admin').length;
   const staffAdmins = users.filter(u => u.role === 'staff' || u.role === 'kitchen').length;
+  const withCustomAccess = users.filter(u => u.role !== 'admin' && (u.permissions || []).length > 0).length;
 
   const getRoleBadge = (role: string, title?: string) => {
     switch (role) {
@@ -350,8 +365,8 @@ export function AdminUsers() {
             <UserIcon className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-2xl font-black text-purple-700">{customerCount}</div>
-            <div className="text-xs font-medium text-slate-500">Customer Accounts</div>
+            <div className="text-2xl font-black text-purple-700">{withCustomAccess}</div>
+            <div className="text-xs font-medium text-slate-500">Custom Access</div>
           </div>
         </div>
 
@@ -400,7 +415,6 @@ export function AdminUsers() {
               className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
             >
               <option value="all">All Roles</option>
-              <option value="customer">Customers</option>
               <option value="admin">Super Administrator</option>
               <option value="staff">Staff Administrator</option>
               <option value="kitchen">Kitchen Manager</option>
@@ -490,6 +504,26 @@ export function AdminUsers() {
                       {/* Role & Title */}
                       <td className="py-4 px-6">
                         {getRoleBadge(u.role, u.adminTitle)}
+                        <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                          {u.role === 'admin' ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md">
+                              Full access
+                            </span>
+                          ) : (u.permissions && u.permissions.length > 0) ? (
+                            <>
+                              {u.permissions.slice(0, 3).map(p => (
+                                <span key={p} className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md capitalize">
+                                  {p}
+                                </span>
+                              ))}
+                              {u.permissions.length > 3 && (
+                                <span className="text-[10px] font-bold text-slate-500">+{u.permissions.length - 3}</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400">Default access</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Phone */}
@@ -657,13 +691,12 @@ export function AdminUsers() {
                         setFormAdminTitle(
                           r === 'admin' ? 'Super Administrator' : 
                           r === 'kitchen' ? 'Kitchen Manager' : 
-                          r === 'staff' ? 'Staff Administrator' : 'Customer'
+                          'Staff Administrator'
                         );
                       }
                     }}
                     className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-slate-900 cursor-pointer"
                   >
-                    <option value="customer">Customer</option>
                     <option value="staff">Staff Administrator</option>
                     <option value="kitchen">Kitchen Manager</option>
                     <option value="admin">Super Administrator</option>
@@ -681,6 +714,60 @@ export function AdminUsers() {
                     placeholder="e.g. Operations Lead"
                     className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-slate-900"
                   />
+                </div>
+              </div>
+
+              {/* Section permissions */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Access Permissions
+                    </label>
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      Sections this user can open. Admins always have full access; leave empty for default access.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={grantAllPermissions}
+                      className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-600 hover:border-emerald-300 hover:text-emerald-700 transition-colors cursor-pointer"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={revokeAllPermissions}
+                      className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-600 hover:border-rose-300 hover:text-rose-700 transition-colors cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  {ADMIN_PERMISSIONS.map(perm => {
+                    const checked = formPermissions.includes(perm.key);
+                    return (
+                      <label
+                        key={perm.key}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold cursor-pointer transition-colors ${
+                          checked
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePermission(perm.key)}
+                          className="w-3.5 h-3.5 accent-emerald-600"
+                        />
+                        <span className="truncate">{perm.label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 

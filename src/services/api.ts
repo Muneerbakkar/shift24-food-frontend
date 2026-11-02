@@ -779,6 +779,7 @@ export async function apiCreateAdminUser(data: {
   phone?: string;
   role?: string;
   adminTitle?: string;
+  permissions?: string[];
 }) {
   const res = await authFetch(`${API_BASE}/auth/admin-users`, {
     method: 'POST',
@@ -795,6 +796,7 @@ export async function apiUpdateAdminUser(id: string, data: {
   adminTitle?: string;
   status?: string;
   password?: string;
+  permissions?: string[];
 }) {
   const res = await authFetch(`${API_BASE}/auth/admin-users/${id}`, {
     method: 'PUT',
@@ -971,6 +973,78 @@ export async function markReferralPaid(referralId: string, data: { paymentRefere
 export async function deleteReferral(referralId: string) {
   try {
     const res = await fetch(`${API_BASE}/referrals/admin/${encodeURIComponent(referralId)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+
+// -------------------------------------------------------------
+// Activity log
+// -------------------------------------------------------------
+export interface ActivityFilters {
+  from?: string;
+  to?: string;
+  entity?: string;
+  actor?: string;
+  q?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function fetchActivityLogs(filters: ActivityFilters = {}) {
+  try {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.append(key, String(value));
+    });
+    const res = await fetch(`${API_BASE}/activity?${params.toString()}`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, data: [], total: 0, page: 1, pages: 1, message: err.message };
+  }
+}
+
+export async function fetchRecentActivity(limit = 8) {
+  try {
+    const res = await fetch(`${API_BASE}/activity/recent?limit=${limit}`, {
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, data: [] };
+  }
+}
+
+export async function deleteActivityEntry(id: string) {
+  try {
+    const res = await fetch(`${API_BASE}/activity/${id}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: getAuthHeaders()
+    });
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, message: err.message };
+  }
+}
+
+export async function purgeActivityLogs(range: { from?: string; to?: string; entity?: string }) {
+  try {
+    const params = new URLSearchParams();
+    Object.entries(range).forEach(([key, value]) => {
+      if (value) params.append(key, String(value));
+    });
+    const res = await fetch(`${API_BASE}/activity?${params.toString()}`, {
       method: 'DELETE',
       credentials: 'include',
       headers: getAuthHeaders()
