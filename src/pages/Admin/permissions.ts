@@ -20,6 +20,7 @@ export const ADMIN_PERMISSIONS: AdminPermissionDef[] = [
   { key: 'customers', label: 'Customers' },
   { key: 'referrals', label: 'Referrals & Rewards' },
   { key: 'users', label: 'Users' },
+  { key: 'roles', label: 'Roles & Permissions' },
   { key: 'activity', label: 'Activity Log' },
   { key: 'settings', label: 'Settings' }
 ];

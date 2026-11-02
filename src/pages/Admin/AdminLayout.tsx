@@ -127,6 +127,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { label: 'Customers', path: '/admin/customers', icon: Users, permission: 'customers' },
     { label: 'Referrals & Rewards', path: '/admin/referrals', icon: Gift, permission: 'referrals' },
     { label: 'Users', path: '/admin/users', icon: UserCheck, permission: 'users' },
+    { label: 'Roles & Permissions', path: '/admin/roles', icon: ShieldCheck, permission: 'roles' },
     { label: 'Activity Log', path: '/admin/activity', icon: Activity, permission: 'activity' },
     { label: 'Settings', path: '/admin/settings', icon: Settings, permission: 'settings' },
   ];

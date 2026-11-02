@@ -815,6 +815,42 @@ export async function apiDeleteAdminUser(id: string) {
 
 
 // -------------------------------------------------------------
+// Role templates (role name + section permissions)
+// -------------------------------------------------------------
+export async function apiGetRoles() {
+  try {
+    const res = await authFetch(`${API_BASE}/roles`);
+    return await res.json();
+  } catch (err: any) {
+    return { success: false, data: [], message: err.message };
+  }
+}
+
+export async function apiCreateRole(data: { name: string; description?: string; permissions: string[] }) {
+  const res = await authFetch(`${API_BASE}/roles`, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
+export async function apiUpdateRole(id: string, data: { name?: string; description?: string; permissions?: string[] }) {
+  const res = await authFetch(`${API_BASE}/roles/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+  return res.json();
+}
+
+export async function apiDeleteRole(id: string) {
+  const res = await authFetch(`${API_BASE}/roles/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  return res.json();
+}
+
+
+// -------------------------------------------------------------
 // Kitchen Location & System Settings
 // -------------------------------------------------------------
 export async function fetchKitchenSettings() {

@@ -251,7 +251,9 @@ export function LoginPage({ initialMode }: LoginPageProps) {
       if (res && res.success && res.user) {
         const role = res.user.role;
 
-        if (role === 'admin' || role === 'staff' || role === 'kitchen') {
+        // Any role that is not a customer or driver belongs to the admin portal
+        // (built-in admin/staff/kitchen and any custom role created in Roles & Permissions).
+        if (role && role !== 'customer' && role !== 'driver') {
           // Admin Session
           localStorage.setItem('adminToken', res.token);
           localStorage.setItem('isAdminLoggedIn', 'true');

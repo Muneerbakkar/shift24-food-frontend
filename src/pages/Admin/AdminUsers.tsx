@@ -27,7 +27,8 @@ import {
   apiGetAdminUsers, 
   apiCreateAdminUser, 
   apiUpdateAdminUser, 
-  apiDeleteAdminUser 
+  apiDeleteAdminUser,
+  apiGetRoles
 } from '../../services/api';
 import { ADMIN_PERMISSIONS, ALL_PERMISSION_KEYS } from './permissions';
 
@@ -63,13 +64,14 @@ export function AdminUsers() {
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
-  const [formRole, setFormRole] = useState<'admin' | 'staff' | 'kitchen' | 'customer'>('staff');
+  const [formRole, setFormRole] = useState<string>('staff');
   const [formAdminTitle, setFormAdminTitle] = useState('');
   const [formStatus, setFormStatus] = useState<'active' | 'inactive'>('active');
   const [formPassword, setFormPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [formPermissions, setFormPermissions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [roles, setRoles] = useState<Array<{ roleId: string; name: string; permissions: string[]; isSystem?: boolean }>>([]);
 
   const togglePermission = (key: string) => {
     setFormPermissions(prev => (prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]));
@@ -112,6 +114,10 @@ export function AdminUsers() {
 
   useEffect(() => {
     loadUsers();
+    // Role templates come from the Roles & Permissions tab.
+    apiGetRoles()
+      .then(res => { if (res?.success && Array.isArray(res.data)) setRoles(res.data); })
+      .catch(() => {});
   }, []);
 
   const handleOpenCreateModal = () => {
@@ -135,7 +141,7 @@ export function AdminUsers() {
     setFormName(user.name);
     setFormEmail(user.email);
     setFormPhone(user.phone || '');
-    setFormRole(user.role || 'customer');
+    setFormRole(user.role || 'staff');
     setFormAdminTitle(
       user.adminTitle || 
       (user.role === 'admin' ? 'Super Administrator' : 
@@ -317,13 +323,22 @@ export function AdminUsers() {
           </span>
         );
       case 'customer':
-      default:
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
             <UserIcon className="w-3.5 h-3.5 text-purple-600" />
             {title || 'Customer'}
           </span>
         );
+      default: {
+        // Custom role created in Roles & Permissions
+        const roleDef = roles.find(r => r.roleId === role);
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <Shield className="w-3.5 h-3.5 text-indigo-600" />
+            {title || roleDef?.name || role}
+          </span>
+        );
+      }
     }
   };
 
@@ -708,21 +723,34 @@ export function AdminUsers() {
                   <select
                     value={formRole}
                     onChange={(e) => {
-                      const r = e.target.value as any;
+                      const r = e.target.value;
                       setFormRole(r);
+                      const roleDef = roles.find(x => x.roleId === r);
+                      // Adopt the role's section access (still editable below).
+                      if (roleDef) setFormPermissions([...(roleDef.permissions || [])]);
+                      else if (r === 'admin') setFormPermissions(ALL_PERMISSION_KEYS);
                       if (modalMode === 'create' || !formAdminTitle) {
                         setFormAdminTitle(
-                          r === 'admin' ? 'Super Administrator' : 
-                          r === 'kitchen' ? 'Kitchen Manager' : 
-                          'Staff Administrator'
+                          roleDef?.name ||
+                          (r === 'admin' ? 'Super Administrator' : r === 'kitchen' ? 'Kitchen Manager' : 'Staff Administrator')
                         );
                       }
                     }}
                     className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium text-slate-900 cursor-pointer"
                   >
-                    <option value="staff">Staff Administrator</option>
-                    <option value="kitchen">Kitchen Manager</option>
-                    <option value="admin">Super Administrator</option>
+                    {roles.length === 0 && (
+                      <>
+                        <option value="staff">Staff Administrator</option>
+                        <option value="kitchen">Kitchen Manager</option>
+                        <option value="admin">Super Administrator</option>
+                      </>
+                    )}
+                    {formRole && !roles.some(r => r.roleId === formRole) && (
+                      <option value={formRole}>{formRole}</option>
+                    )}
+                    {roles.map(role => (
+                      <option key={role.roleId} value={role.roleId}>{role.name}</option>
+                    ))}
                   </select>
                 </div>
 
