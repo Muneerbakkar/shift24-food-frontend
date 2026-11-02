@@ -155,6 +155,22 @@ export function AdminUsers() {
     setSubmitting(false);
   };
 
+  // Escape closes the modal, and the page behind it doesn't scroll while it's open.
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleCloseModal();
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModalOpen]);
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
@@ -602,16 +618,23 @@ export function AdminUsers() {
 
       {/* Add / Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 sm:p-8 relative">
+        <div
+          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-fadeIn overflow-y-auto"
+          onClick={handleCloseModal}
+        >
+          <div
+            className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[calc(100vh-1.5rem)] flex flex-col p-5 sm:p-7 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               onClick={handleCloseModal}
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1 rounded-xl cursor-pointer"
+              className="absolute top-4 right-4 z-10 text-slate-400 hover:text-slate-600 bg-white/90 rounded-xl p-1 cursor-pointer"
+              title="Close"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="mb-6">
+            <div className="mb-5 shrink-0 pr-9">
               <div className="flex items-center gap-2 text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">
                 <UserCheck className="w-4 h-4" />
                 <span>{modalMode === 'create' ? 'Create User' : 'Edit User'}</span>
@@ -626,7 +649,7 @@ export function AdminUsers() {
               </p>
             </div>
 
-            <form onSubmit={handleFormSubmit} className="space-y-4">
+            <form onSubmit={handleFormSubmit} className="space-y-4 overflow-y-auto flex-1 pr-1 -mr-1">
               {/* Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
@@ -832,7 +855,7 @@ export function AdminUsers() {
               )}
 
               {/* Submit / Cancel Buttons */}
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+              <div className="sticky bottom-0 -mx-1 px-1 pb-1 pt-4 border-t border-slate-100 bg-white flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={handleCloseModal}
