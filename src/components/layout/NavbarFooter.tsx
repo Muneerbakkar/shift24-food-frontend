@@ -1,4 +1,4 @@
-import { Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone } from 'lucide-react';
+import { Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -9,6 +9,7 @@ import {
   subscribeToPushNotifications,
   sendTestPushToPhone 
 } from '../../services/pushNotificationService';
+import { canPromptInstall, isAppInstalled, isIOSDevice, promptInstall, subscribeInstallPrompt } from '../../services/installPrompt';
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -17,6 +18,8 @@ export function Navbar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isPushEnabled, setIsPushEnabled] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
+  const [canInstall, setCanInstall] = useState(false);
+  const [isIosDevice, setIsIosDevice] = useState(false);
   const location = useLocation();
 
   const isActive = (path: string) => location.pathname === path;
@@ -46,6 +49,29 @@ export function Navbar() {
       window.removeEventListener('storage', checkAuth);
     };
   }, []);
+
+  // The install prompt is captured at module load (see installPrompt.ts); this
+  // only mirrors its availability into render state.
+  useEffect(() => {
+    setIsIosDevice(isIOSDevice());
+    const sync = () => setCanInstall(canPromptInstall());
+    sync();
+    return subscribeInstallPrompt(sync);
+  }, []);
+
+  const handleInstall = async () => {
+    const outcome = await promptInstall();
+    if (outcome === 'accepted') {
+      toast.success('Shift24 installed — open it from your home screen.');
+      return;
+    }
+    if (outcome === 'unavailable' && isIOSDevice()) {
+      toast('To install on iPhone: tap the Share button, then "Add to Home Screen".', {
+        icon: '📲',
+        duration: 7000
+      });
+    }
+  };
 
   // Push notification status sync
   useEffect(() => {
@@ -154,6 +180,16 @@ export function Navbar() {
           </div>
 
           <div className="hidden md:flex gap-5 items-center z-10">
+            {!isAppInstalled() && (canInstall || isIosDevice) && (
+              <button
+                onClick={handleInstall}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-all cursor-pointer"
+                title="Install the Shift24 app on this device"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Install App</span>
+              </button>
+            )}
             {isLoggedIn && (
               <>
                 <button
@@ -257,6 +293,15 @@ export function Navbar() {
         </div>
         
         <div className="p-6 flex flex-col gap-6 overflow-y-auto h-full">
+          {!isAppInstalled() && (canInstall || isIosDevice) && (
+            <button
+              onClick={() => { setIsOpen(false); handleInstall(); }}
+              className="inline-flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-sm font-bold transition-colors cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Install App</span>
+            </button>
+          )}
           <Link to="/" onClick={() => setIsOpen(false)} className={`text-base font-medium flex items-center gap-4 ${isActive('/') ? 'text-emerald-600 font-bold' : 'text-slate-600 hover:text-emerald-600'}`}>
             <Home className="w-5 h-5 text-slate-400" /> Home
           </Link>
