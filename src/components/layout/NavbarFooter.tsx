@@ -365,9 +365,9 @@ export function Footer() {
           <div className="lg:col-span-1">
             <h4 className="font-semibold text-emerald-700 uppercase tracking-wide mb-4 text-[15px]">Address</h4>
             <div className="text-slate-600 leading-relaxed text-[15px]">
-              <p>123 Health Ave,</p>
-              <p>Wellness City,</p>
-              <p>CA 90210</p>
+              <p>InfoPark,</p>
+              <p>Kakkanad,</p>
+              <p>Kochi</p>
             </div>
           </div>
 
@@ -375,11 +375,11 @@ export function Footer() {
           <div className="lg:col-span-1">
             <div className="mb-6">
               <h4 className="font-semibold text-emerald-700 uppercase tracking-wide mb-4 text-[15px]">Phone</h4>
-              <p className="text-slate-600 text-[15px]">1-800-Shift24</p>
+              <p className="text-slate-600 text-[15px]">+91 7306406965</p>
             </div>
             <div>
               <h4 className="font-semibold text-emerald-700 uppercase tracking-wide mb-4 text-[15px]">Email</h4>
-              <p className="text-slate-600 text-[15px]">hello@Shift24.com</p>
+              <p className="text-slate-600 text-[15px]">shift24support@gmail.com</p>
             </div>
           </div>
 

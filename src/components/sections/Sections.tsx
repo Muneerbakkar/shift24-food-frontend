@@ -622,7 +622,7 @@ export function ContactUs() {
                 </div>
                 <div>
                   <p className="font-bold text-slate-900">Headquarters</p>
-                  <p className="text-slate-500">123 Health Ave, Wellness City, CA 90210</p>
+                  <p className="text-slate-500">InfoPark, Kakkanad, Kochi</p>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -631,7 +631,7 @@ export function ContactUs() {
                 </div>
                 <div>
                   <p className="font-bold text-slate-900">Email Us</p>
-                  <p className="text-slate-500">hello@Shift24.com</p>
+                  <p className="text-slate-500">shift24support@gmail.com</p>
                 </div>
               </div>
               <div className="flex items-center gap-4">
@@ -640,7 +640,7 @@ export function ContactUs() {
                 </div>
                 <div>
                   <p className="font-bold text-slate-900">Call Us</p>
-                  <p className="text-slate-500">1-800-Shift24</p>
+                  <p className="text-slate-500">+91 7306406965</p>
                 </div>
               </div>
             </div>
@@ -671,7 +671,7 @@ export function ContactUs() {
           <div className="rounded-xl md:rounded-[24px] overflow-hidden h-[400px] w-full bg-slate-100 relative">
             <iframe
               title="Our Location"
-              src="https://maps.google.com/maps?q=15/293-C%20Muriyankara,%20Pinarmunda%20Road,%20Peringala,%20Ernakulam&t=&z=15&ie=UTF8&iwloc=&output=embed"
+              src="https://maps.google.com/maps?q=Infopark%20Kakkanad%20Kochi%20Kerala&t=&z=15&ie=UTF8&iwloc=&output=embed"
               className="absolute top-0 left-0 w-full h-full"
               style={{ border: 0 }}
               allowFullScreen
