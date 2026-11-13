@@ -196,8 +196,9 @@ export function Navbar() {
     <nav className="sticky top-0 z-50 bg-white border-b border-slate-100 transition-all">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10">
         <div className="flex justify-between items-center h-20 relative">
-          <Link to="/" className="flex items-center gap-2 z-10">
+          <Link to="/" className="flex flex-col items-start z-10">
             <span className="font-extrabold text-2xl tracking-tight text-black">Shift<span className="text-emerald-500">24</span></span>
+            <span className="mt-1 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600/80">Healthy Meals</span>
           </Link>
           
           <div className="hidden md:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 gap-8 items-center text-sm font-medium">
@@ -356,8 +357,9 @@ export function Footer() {
           
           {/* Logo Column */}
           <div className="lg:col-span-1">
-            <Link to="/" className="flex items-center gap-2.5">
+            <Link to="/" className="flex flex-col items-start gap-0">
               <span className="font-extrabold text-2xl tracking-tight text-black">Shift<span className="text-emerald-500">24</span></span>
+              <span className="mt-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700/70">Healthy Meals</span>
             </Link>
           </div>
 
