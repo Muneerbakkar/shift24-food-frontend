@@ -164,7 +164,14 @@ export function getCurrentUserContext(): UserContext {
 }
 
 function getAuthHeaders(customHeaders: Record<string, string> = {}) {
-  const token = localStorage.getItem('token') || localStorage.getItem('adminToken') || localStorage.getItem('driverToken');
+  // Read the token belonging to the current portal only, so a customer request
+  // can never carry an admin or driver credential.
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const token = path.startsWith('/admin')
+    ? localStorage.getItem('adminToken')
+    : path.startsWith('/driver')
+    ? localStorage.getItem('driverToken')
+    : localStorage.getItem('token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...customHeaders

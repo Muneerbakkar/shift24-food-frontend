@@ -42,6 +42,7 @@ import {
 } from '../../services/api';
 import { openRazorpayCheckout } from '../../utils/razorpay';
 import { LocationMapPicker, GeocodedAddress } from '../../components/ui/LocationMapPicker';
+import { clearAdminSession, clearDriverSession } from '../../services/authSession';
 
 const iconMap = {
   TrendingDown: TrendingDown,
@@ -404,8 +405,8 @@ export function CheckoutDetails() {
             // If fresh user has no addresses, fetch user's subscriptions from backend to pull subscription address
             if (freshValid.length === 0 && freshUser.email) {
               try {
-                const { fetchSubscriptions } = await import('../../services/api');
-                const subRes = await fetchSubscriptions({ email: freshUser.email });
+                const { fetchMySubscriptions } = await import('../../services/api');
+                const subRes = await fetchMySubscriptions();
                 if (subRes.success && Array.isArray(subRes.data) && subRes.data.length > 0) {
                   for (const s of subRes.data) {
                     if (s.address && !s.address.includes('123 Health Street') && !s.address.includes('123 Main St')) {
@@ -702,6 +703,8 @@ export function CheckoutDetails() {
   
   const today = new Date();
   const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  // We don't deliver on Sundays, so a plan never starts on one.
+  if (startDate.getDay() === 0) startDate.setDate(startDate.getDate() + 1);
   const [currentMonth, setCurrentMonth] = useState(new Date(startDate.getFullYear(), startDate.getMonth(), 1));
 
   // Calculate covered dates dynamically based on duration and skipped dates
@@ -716,7 +719,8 @@ export function CheckoutDetails() {
     const mPadded = String(tempDate.getMonth() + 1).padStart(2, '0');
     const dPadded = String(tempDate.getDate()).padStart(2, '0');
     const dateStr = `${tempDate.getFullYear()}-${mPadded}-${dPadded}`;
-    if (!skippedDates.includes(dateStr)) {
+    // Sundays are never delivery days, so they don't count toward the plan.
+    if (!skippedDates.includes(dateStr) && tempDate.getDay() !== 0) {
       activeDates.add(dateStr);
       daysCounted++;
       endDate = new Date(tempDate);
@@ -727,6 +731,7 @@ export function CheckoutDetails() {
   const handleDayClick = (year: number, month: number, day: number) => {
     const clickedDate = new Date(year, month, day);
     if (clickedDate < startDate) return; // Cannot skip past dates
+    if (clickedDate.getDay() === 0) return; // Sundays are always closed
 
     const mPadded = String(month + 1).padStart(2, '0');
     const dPadded = String(day).padStart(2, '0');
@@ -813,7 +818,9 @@ export function CheckoutDetails() {
     const generatedSubId = `SUB-${Math.floor(100 + Math.random() * 900)}`;
     const effectiveRefCode = appliedReferral ? appliedReferral.code : (referralCodeInput.trim() ? referralCodeInput.trim().toUpperCase() : '');
 
-    // 2. Persist subscription in backend if possible
+    // 2. Persist subscription in the backend. The success state and the local
+    // cache must only be written when the server actually stored the plan.
+    let backendSaved = false;
     try {
       const subPayload = {
         id: generatedSubId,
@@ -848,7 +855,11 @@ export function CheckoutDetails() {
         skippedDates: skippedDates,
         skippedMeals: [],
       };
-      await createBackendSubscription(subPayload);
+      const saveRes = await createBackendSubscription(subPayload);
+      if (!saveRes || saveRes.success === false) {
+        throw new Error(saveRes?.message || 'The subscription could not be saved.');
+      }
+      backendSaved = true;
 
       try {
         const existingAdminSubs = JSON.parse(localStorage.getItem('shift24_admin_subscriptions') || '[]');
@@ -906,6 +917,17 @@ export function CheckoutDetails() {
       console.warn('Backend subscription save error:', subErr);
     }
 
+    if (!backendSaved) {
+      setIsProcessing(false);
+      toast.error(
+        paymentInfo.razorpayPaymentId
+          ? `Payment received, but your plan could not be saved. Please contact support (Payment ID: ${paymentInfo.razorpayPaymentId}).`
+          : 'We could not save your plan. Please try again.',
+        { duration: 8000 }
+      );
+      return;
+    }
+
     // 3. Save local active subscription state
     const subDetails = {
       id: generatedSubId,
@@ -937,6 +959,10 @@ export function CheckoutDetails() {
       skippedMeals: [],
     };
     localStorage.setItem('activeSubscription', JSON.stringify(subDetails));
+    // A purchase on the public site must not leave an admin/driver session
+    // mixed into the customer UI.
+    clearAdminSession();
+    clearDriverSession();
     localStorage.setItem('isLoggedIn', 'true');
     if (formData.name) {
       localStorage.setItem('userName', formData.name.trim());
@@ -2148,7 +2174,7 @@ export function CheckoutDetails() {
                  </div>
                  <div>
                    <h3 className="text-base sm:text-lg font-bold text-slate-900">Manage Deliveries</h3>
-                   <p className="text-xs sm:text-sm text-slate-500">Tap days you want to skip</p>
+                   <p className="text-xs sm:text-sm text-slate-500">Tap days you want to skip · Sundays closed</p>
                  </div>
                </div>
 
@@ -2180,11 +2206,14 @@ export function CheckoutDetails() {
                    const clickedDate = new Date(year, month, day);
                    
                    const isPast = clickedDate < startDate;
+                   const isSunday = clickedDate.getDay() === 0;
                    const isSkipped = skippedDates.includes(dateStr);
                    const isActive = activeDates.has(dateStr);
                    
                    let dayClass = 'bg-slate-50 text-slate-400';
-                   if (isSkipped) {
+                   if (isSunday) {
+                     dayClass = 'bg-slate-100 text-slate-300 cursor-not-allowed';
+                   } else if (isSkipped) {
                      dayClass = 'bg-red-50 text-red-600 border border-red-200 font-bold';
                    } else if (isActive) {
                      dayClass = 'bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold hover:bg-emerald-100 cursor-pointer shadow-sm';
@@ -2195,7 +2224,8 @@ export function CheckoutDetails() {
                    return (
                      <button 
                        key={day}
-                       disabled={isPast && !isSkipped && !isActive}
+                       disabled={isSunday || (isPast && !isSkipped && !isActive)}
+                       title={isSunday ? 'No deliveries on Sundays' : undefined}
                        onClick={() => handleDayClick(year, month, day)}
                        className={`h-8 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center text-xs sm:text-sm transition-all ${dayClass}`}
                      >
@@ -2214,6 +2244,9 @@ export function CheckoutDetails() {
                    <span className="text-slate-600 font-medium">End Date:</span>
                    <span className="text-emerald-700 font-bold">{endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                  </div>
+                 <p className="mt-2.5 text-xs text-slate-500 font-medium">
+                   We don't deliver on Sundays, so those days are skipped automatically and don't count toward your plan.
+                 </p>
                  {skippedDates.length > 0 && (
                    <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-slate-200">
                      <p className="text-xs text-red-600 font-medium mb-1.5 sm:mb-2">

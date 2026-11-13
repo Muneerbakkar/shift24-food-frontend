@@ -11,13 +11,12 @@ function getAuthHeaders(customHeaders: Record<string, string> = {}): Record<stri
     ...customHeaders
   };
 
-  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-  const isDriverRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/driver');
-  const rawToken = isAdminRoute
-    ? (localStorage.getItem('adminToken') || localStorage.getItem('token'))
-    : isDriverRoute
-    ? (localStorage.getItem('driverToken') || localStorage.getItem('token'))
-    : (localStorage.getItem('token') || localStorage.getItem('adminToken'));
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const rawToken = path.startsWith('/admin')
+    ? localStorage.getItem('adminToken')
+    : path.startsWith('/driver')
+    ? localStorage.getItem('driverToken')
+    : localStorage.getItem('token');
 
   const token = (rawToken && JWT_SHAPE.test(rawToken.trim())) ? rawToken.trim() : null;
 

@@ -448,9 +448,9 @@ export function WhyUs() {
                 key={idx} 
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: idx * 0.1 }}
-                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-start gap-4 hover:border-emerald-200 hover:shadow-md transition-all group"
+                viewport={{ once: true, amount: 0.2 }}
+                transition={{ delay: idx * 0.12, duration: 0.85, ease: [0.22, 1, 0.36, 1] }}
+                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-start gap-4 hover:border-emerald-200 hover:shadow-md transition-[border-color,box-shadow] duration-500 ease-out group will-change-transform"
               >
                 <div className="mt-1.5 bg-emerald-100 rounded-full p-1.5 shrink-0 group-hover:bg-emerald-500 transition-colors duration-300">
                   <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full group-hover:bg-white transition-colors duration-300"></div>

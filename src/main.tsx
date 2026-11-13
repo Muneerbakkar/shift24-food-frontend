@@ -3,6 +3,11 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import 'leaflet/dist/leaflet.css';
+import { resetMixedSessionState } from './services/authSession';
+
+// Remove legacy mixed sessions (e.g. an old admin login that also wrote the
+// customer keys) before any component reads the auth state.
+resetMixedSessionState();
 
 // Register Service Worker for PWA & Mobile Push Notifications (Android & iOS)
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {

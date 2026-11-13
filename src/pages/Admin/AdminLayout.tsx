@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiGetMe, apiLogout, apiAdminLogin } from '../../services/api';
+import { clearAllSessions } from '../../services/authSession';
 import { hasPermission } from './permissions';
 
 interface AdminLayoutProps {
@@ -56,9 +57,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       // If token is missing, redirect to admin login
       if (!token || token === 'null' || token === 'undefined') {
-        localStorage.removeItem('isAdminLoggedIn');
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminUser');
+        clearAllSessions();
         navigate('/admin/login', { replace: true });
         return;
       }
@@ -70,9 +69,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           setAdminUser(res.user);
           localStorage.setItem('adminUser', JSON.stringify(res.user));
         } else if (res && !res.success && (res.message?.includes('token') || res.message?.includes('session') || res.message?.includes('Authentication') || res.code === 'TOKEN_EXPIRED')) {
-          localStorage.removeItem('isAdminLoggedIn');
-          localStorage.removeItem('adminToken');
-          localStorage.removeItem('adminUser');
+          clearAllSessions();
+          window.dispatchEvent(new Event('auth-change'));
           toast.error('Session expired. Please log in again.');
           navigate('/admin/login', { replace: true });
         }
@@ -102,12 +100,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     try {
       await apiLogout();
     } catch (e) {}
-    localStorage.removeItem('isAdminLoggedIn');
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminUser');
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAllSessions();
     window.dispatchEvent(new Event('auth-change'));
     toast.success('Admin logged out successfully');
     navigate('/admin/login');

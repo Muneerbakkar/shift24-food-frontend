@@ -864,55 +864,60 @@ export function MealDetails() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-2xl md:rounded-[32px] overflow-hidden shadow-sm border border-slate-200 p-6 md:p-12 lg:p-16"
+          className="bg-white rounded-2xl md:rounded-[32px] overflow-clip shadow-sm border border-slate-200 p-6 md:p-12 lg:p-16"
         >
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20">
             
             {/* Left Column: Product Gallery */}
-            <div className="flex flex-col gap-6">
-              <div 
-                ref={imageContainerRef}
-                className={`w-full aspect-[4/3] rounded-2xl md:rounded-3xl relative bg-slate-100 overflow-hidden border border-slate-100 ${zoomProps.scale > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
-                onMouseMove={handleMouseMove}
-                onMouseLeave={handleMouseLeave}
-              >
-                {activeImage ? (
-                  <img 
-                    src={activeImage} 
-                    alt={meal.name} 
-                    className="w-full h-full object-cover transition-opacity duration-500" 
-                    style={{
-                      transformOrigin: `${zoomProps.x}% ${zoomProps.y}%`,
-                      transform: `scale(${zoomProps.scale})`,
-                      transition: zoomProps.scale > 1 ? 'transform 0.1s ease-out' : 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
-                    <UtensilsCrossed className="w-12 h-12" />
-                    <span className="text-xs font-semibold text-slate-400">Photo coming soon</span>
+            {/* On desktop the gallery sticks while the long description and
+                benefits scroll, instead of leaving a large blank area below
+                the image. */}
+            <div className="flex flex-col">
+              <div className="flex flex-col gap-6 lg:sticky lg:top-24">
+                <div 
+                  ref={imageContainerRef}
+                  className={`w-full aspect-[4/3] rounded-2xl md:rounded-3xl relative bg-slate-100 overflow-hidden border border-slate-100 ${zoomProps.scale > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'}`}
+                  onMouseMove={handleMouseMove}
+                  onMouseLeave={handleMouseLeave}
+                >
+                  {activeImage ? (
+                    <img 
+                      src={activeImage} 
+                      alt={meal.name} 
+                      className="w-full h-full object-cover transition-opacity duration-500" 
+                      style={{
+                        transformOrigin: `${zoomProps.x}% ${zoomProps.y}%`,
+                        transform: `scale(${zoomProps.scale})`,
+                        transition: zoomProps.scale > 1 ? 'transform 0.1s ease-out' : 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
+                      <UtensilsCrossed className="w-12 h-12" />
+                      <span className="text-xs font-semibold text-slate-400">Photo coming soon</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Thumbnails Row — only the photos uploaded for this dish */}
+                {galleryImages.length > 1 && (
+                  <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
+                    {galleryImages.map((img, idx) => (
+                      <button 
+                        key={idx}
+                        onClick={() => {
+                        setActiveImageIndex(idx);
+                        setZoomProps({ scale: 1, x: 50, y: 50 });
+                        zoomStateRef.current = { scale: 1, x: 50, y: 50 };
+                      }}
+                        className={`w-24 h-24 shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-emerald-500 shadow-md scale-105' : 'border-transparent opacity-60 hover:opacity-100 hover:border-slate-300'}`}
+                      >
+                        <img src={img} className="w-full h-full object-cover" alt={`Gallery thumbnail ${idx + 1}`} />
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
-              
-              {/* Thumbnails Row — only the photos uploaded for this dish */}
-              {galleryImages.length > 1 && (
-                <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar">
-                  {galleryImages.map((img, idx) => (
-                    <button 
-                      key={idx}
-                      onClick={() => {
-                      setActiveImageIndex(idx);
-                      setZoomProps({ scale: 1, x: 50, y: 50 });
-                      zoomStateRef.current = { scale: 1, x: 50, y: 50 };
-                    }}
-                      className={`w-24 h-24 shrink-0 rounded-2xl overflow-hidden border-2 transition-all ${activeImageIndex === idx ? 'border-emerald-500 shadow-md scale-105' : 'border-transparent opacity-60 hover:opacity-100 hover:border-slate-300'}`}
-                    >
-                      <img src={img} className="w-full h-full object-cover" alt={`Gallery thumbnail ${idx + 1}`} />
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Right Column: Product Details */}

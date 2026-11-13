@@ -49,10 +49,9 @@ export function NotificationsPage() {
   });
 
   const ctx = getCurrentUserContext();
-  const isLoggedIn = 
-    localStorage.getItem('isLoggedIn') === 'true' || 
-    localStorage.getItem('isAdminLoggedIn') === 'true' || 
-    localStorage.getItem('isDriverLoggedIn') === 'true';
+  // This is a customer-site route; admin and driver sessions belong to their
+  // own portals and should not render customer UI here.
+  const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
 
   const loadNotifications = async () => {
     if (!isLoggedIn) {

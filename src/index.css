@@ -2,7 +2,9 @@
 
 html,
 body {
-  overflow-x: hidden;
+  /* `clip` hides horizontal overflow without creating a scroll container,
+     which keeps position: sticky working (navbar and meal gallery). */
+  overflow-x: clip;
   max-width: 100%;
   width: 100%;
 }

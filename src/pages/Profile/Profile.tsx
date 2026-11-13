@@ -10,9 +10,21 @@ import { toPng } from 'html-to-image';
 import { LocationMapPicker, GeocodedAddress } from '../../components/ui/LocationMapPicker';
 import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
 import { fetchMyReferrals } from '../../services/api';
+import { clearAllSessions } from '../../services/authSession';
 
 export function ProfilePage() {
   const navigate = useNavigate();
+
+  // The customer profile only belongs to customer sessions. Admins are sent
+  // back to the admin portal and signed-out visitors to the login page.
+  useEffect(() => {
+    const isCustomer = localStorage.getItem('isLoggedIn') === 'true';
+    const isAdmin = localStorage.getItem('isAdminLoggedIn') === 'true';
+    if (!isCustomer) {
+      navigate(isAdmin ? '/admin' : '/login', { replace: true });
+    }
+  }, [navigate]);
+
   const storedUserRaw = localStorage.getItem('user');
   let loggedInUser: any = null;
   try {
@@ -54,7 +66,7 @@ export function ProfilePage() {
   useEffect(() => {
     const fetchFreshUser = async () => {
       try {
-        const { apiGetMe, fetchSubscriptions } = await import('../../services/api');
+        const { apiGetMe, fetchMySubscriptions } = await import('../../services/api');
         const res = await apiGetMe();
         const fresh = res?.user || res?.data;
         if (res && res.success && fresh) {
@@ -74,7 +86,7 @@ export function ProfilePage() {
         // Direct fetch from MongoDB subscriptions to guarantee customerName and customerPhone
         const userEmail = fresh?.email || loggedInUser?.email || localStorage.getItem('userEmail');
         if (userEmail) {
-          const subRes = await fetchSubscriptions({ email: userEmail });
+          const subRes = await fetchMySubscriptions();
           if (subRes && subRes.success && Array.isArray(subRes.data) && subRes.data.length > 0) {
             const latestSub = subRes.data[0];
             if (latestSub.customerName || latestSub.customerPhone) {
@@ -1571,7 +1583,7 @@ export function ProfilePage() {
   useEffect(() => {
     const loadUserSubscriptions = async () => {
       setLoadingSubs(true);
-      const userEmail = loggedInUser?.email;
+      const userEmail = loggedInUser?.email || localStorage.getItem('userEmail') || '';
 
       // 1. If user has activeSubscription in localStorage, check if it belongs to current session
       const storedSubRaw = localStorage.getItem('activeSubscription');
@@ -1593,98 +1605,111 @@ export function ProfilePage() {
         localSub = null;
       }
 
-      // 2. Fetch from backend subscriptions API for this user's email if logged in
+      // 2. Fetch the signed-in customer's subscriptions from the backend.
       if (userEmail) {
         try {
-          const { fetchSubscriptions } = await import('../../services/api');
-          const res = await fetchSubscriptions({ email: userEmail });
-          if (res.success && Array.isArray(res.data)) {
-            if (res.data.length > 0) {
-              const latestSub = res.data[0];
-              if (latestSub && (latestSub.customerName || latestSub.customerPhone)) {
-                setUserProfile(prev => ({
-                  ...prev,
-                  name: latestSub.customerName || prev.name,
-                  phone: latestSub.customerPhone || prev.phone
-                }));
-                if (latestSub.customerName) localStorage.setItem('userName', latestSub.customerName);
-                if (latestSub.customerPhone) localStorage.setItem('userPhone', latestSub.customerPhone);
-                try {
-                  const cur = localStorage.getItem('user');
-                  if (cur) {
-                    const parsed = JSON.parse(cur);
-                    if (latestSub.customerName) parsed.name = latestSub.customerName;
-                    if (latestSub.customerPhone) parsed.phone = latestSub.customerPhone;
-                    localStorage.setItem('user', JSON.stringify(parsed));
-                  }
-                } catch {}
-                window.dispatchEvent(new Event('auth-change'));
-              }
-              const mapped = res.data.map((s: any) => ({
-                id: s.subId || s._id,
-                planName: s.planTitle || 'Healthy Meal Plan',
-                status: s.status || 'Active',
-                nextDelivery: s.nextDelivery || 'Tomorrow, 08:00 AM - 09:00 AM',
-                startDate: s.startDate || 'Recent',
-                endDate: s.endDate || 'Ongoing',
-                duration: s.duration || `${s.durationDays || 30} Days`,
-                durationDays: s.durationDays || 26,
-                meals: s.slotLabel ? (s.slotLabel.includes('Meal') ? s.slotLabel : `${s.mealsPerDay || 1} ${Number(s.mealsPerDay) === 1 ? 'Meal' : 'Meals'} (${s.slotLabel})`) : (s.meals || `${s.mealsPerDay || 3} Meals Daily`),
-                mealsPerDay: s.mealsPerDay ? String(s.mealsPerDay) : undefined,
-                slot: s.slot || undefined,
-                slotLabel: s.slotLabel || undefined,
-                address: s.address || 'Delivery Address',
-                pauseStartDate: s.pauseStartDate || null,
-                pauseEndDate: s.pauseEndDate || null,
-                allergies: s.allergies || [],
-                preferences: s.preferences || [],
-                skippedDates: s.skippedDates || [],
-                skippedMeals: s.skippedMeals || []
-              }));
-              setSubscriptionsList(mapped);
+          const { fetchMySubscriptions } = await import('../../services/api');
+          const res = await fetchMySubscriptions();
 
-              if (mapped[0]) {
-                if (Array.isArray(mapped[0].allergies) && mapped[0].allergies.length > 0) setAllergies(mapped[0].allergies);
-                if (Array.isArray(mapped[0].preferences) && mapped[0].preferences.length > 0) setPreferences(mapped[0].preferences);
-                if (Array.isArray(mapped[0].skippedDates) && mapped[0].skippedDates.length > 0) setSkippedDates(mapped[0].skippedDates);
-                if (Array.isArray((mapped[0] as any).skippedMeals) && (mapped[0] as any).skippedMeals.length > 0) setSkippedMeals((mapped[0] as any).skippedMeals);
-              }
-
-              // Sync subscription addresses into addresses list
-              setAddresses(prev => {
-                const currentAddrs = [...prev];
-                let updated = false;
-                for (const s of res.data) {
-                  if (s.address && !s.address.includes('123 Health Street') && !s.address.includes('123 Main St')) {
-                    const exists = currentAddrs.some(a => a.address.trim().toLowerCase() === s.address.trim().toLowerCase());
-                    if (!exists) {
-                      currentAddrs.push({
-                        id: s.subId || Date.now().toString(),
-                        title: 'Home',
-                        address: s.address,
-                        isDefault: currentAddrs.length === 0
-                      });
-                      updated = true;
-                    }
-                  }
-                }
-                if (updated && loggedInUser) {
-                  localStorage.setItem('user', JSON.stringify({ ...loggedInUser, addresses: currentAddrs }));
-                }
-                return currentAddrs;
-              });
-
-              setLoadingSubs(false);
-              return;
-            } else {
-              setSubscriptionsList([]);
-              localStorage.removeItem('activeSubscription');
-              setLoadingSubs(false);
-              return;
-            }
+          // Never fall back to a stale localStorage copy when the session is
+          // invalid/expired or the server is unavailable.
+          if (!res?.success || !Array.isArray(res.data)) {
+            localStorage.removeItem('activeSubscription');
+            setSubscriptionsList([]);
+            setLoadingSubs(false);
+            return;
           }
+
+          if (res.data.length === 0) {
+            localStorage.removeItem('activeSubscription');
+            setSubscriptionsList([]);
+            setLoadingSubs(false);
+            return;
+          }
+
+          const latestSub = res.data[0];
+          if (latestSub && (latestSub.customerName || latestSub.customerPhone)) {
+            setUserProfile(prev => ({
+              ...prev,
+              name: latestSub.customerName || prev.name,
+              phone: latestSub.customerPhone || prev.phone
+            }));
+            if (latestSub.customerName) localStorage.setItem('userName', latestSub.customerName);
+            if (latestSub.customerPhone) localStorage.setItem('userPhone', latestSub.customerPhone);
+            try {
+              const cur = localStorage.getItem('user');
+              if (cur) {
+                const parsed = JSON.parse(cur);
+                if (latestSub.customerName) parsed.name = latestSub.customerName;
+                if (latestSub.customerPhone) parsed.phone = latestSub.customerPhone;
+                localStorage.setItem('user', JSON.stringify(parsed));
+              }
+            } catch {}
+            window.dispatchEvent(new Event('auth-change'));
+          }
+
+          const mapped = res.data.map((s: any) => ({
+            id: s.subId || s._id,
+            planName: s.planTitle || 'Healthy Meal Plan',
+            status: s.status || 'Active',
+            nextDelivery: s.nextDelivery || 'Tomorrow, 08:00 AM - 09:00 AM',
+            startDate: s.startDate || 'Recent',
+            endDate: s.endDate || 'Ongoing',
+            duration: s.duration || `${s.durationDays || 30} Days`,
+            durationDays: s.durationDays || 26,
+            meals: s.slotLabel ? (s.slotLabel.includes('Meal') ? s.slotLabel : `${s.mealsPerDay || 1} ${Number(s.mealsPerDay) === 1 ? 'Meal' : 'Meals'} (${s.slotLabel})`) : (s.meals || `${s.mealsPerDay || 3} Meals Daily`),
+            mealsPerDay: s.mealsPerDay ? String(s.mealsPerDay) : undefined,
+            slot: s.slot || undefined,
+            slotLabel: s.slotLabel || undefined,
+            address: s.address || 'Delivery Address',
+            pauseStartDate: s.pauseStartDate || null,
+            pauseEndDate: s.pauseEndDate || null,
+            allergies: s.allergies || [],
+            preferences: s.preferences || [],
+            skippedDates: s.skippedDates || [],
+            skippedMeals: s.skippedMeals || []
+          }));
+          setSubscriptionsList(mapped);
+
+          if (mapped[0]) {
+            if (Array.isArray(mapped[0].allergies) && mapped[0].allergies.length > 0) setAllergies(mapped[0].allergies);
+            if (Array.isArray(mapped[0].preferences) && mapped[0].preferences.length > 0) setPreferences(mapped[0].preferences);
+            if (Array.isArray(mapped[0].skippedDates) && mapped[0].skippedDates.length > 0) setSkippedDates(mapped[0].skippedDates);
+            if (Array.isArray((mapped[0] as any).skippedMeals) && (mapped[0] as any).skippedMeals.length > 0) setSkippedMeals((mapped[0] as any).skippedMeals);
+          }
+
+          // Sync subscription addresses into addresses list
+          setAddresses(prev => {
+            const currentAddrs = [...prev];
+            let updated = false;
+            for (const s of res.data) {
+              if (s.address && !s.address.includes('123 Health Street') && !s.address.includes('123 Main St')) {
+                const exists = currentAddrs.some(a => a.address.trim().toLowerCase() === s.address.trim().toLowerCase());
+                if (!exists) {
+                  currentAddrs.push({
+                    id: s.subId || Date.now().toString(),
+                    title: 'Home',
+                    address: s.address,
+                    isDefault: currentAddrs.length === 0
+                  });
+                  updated = true;
+                }
+              }
+            }
+            if (updated && loggedInUser) {
+              localStorage.setItem('user', JSON.stringify({ ...loggedInUser, addresses: currentAddrs }));
+            }
+            return currentAddrs;
+          });
+
+          setLoadingSubs(false);
+          return;
         } catch (err) {
           console.warn('Could not fetch backend subscriptions:', err);
+          localStorage.removeItem('activeSubscription');
+          setSubscriptionsList([]);
+          setLoadingSubs(false);
+          return;
         }
       }
 
@@ -1753,17 +1778,7 @@ export function ProfilePage() {
     } catch (e) {
       // ignore
     }
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('isAdminLoggedIn');
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('adminUser');
-    localStorage.removeItem('isDriverLoggedIn');
-    localStorage.removeItem('driverToken');
-    localStorage.removeItem('driverUser');
+    clearAllSessions();
     window.dispatchEvent(new Event('auth-change'));
     navigate('/');
   };

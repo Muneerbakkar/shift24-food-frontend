@@ -1,4 +1,4 @@
-const CACHE_NAME = 'shift24-pwa-v2';
+const CACHE_NAME = 'shift24-pwa-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -42,6 +42,14 @@ self.addEventListener('fetch', (event) => {
   // Do not intercept non-GET or cross-origin API calls
   if (event.request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/')) return;
+
+  // Never cache Vite dev modules (they change on every edit and caused stale
+  // UI code to keep running after a reload). Production assets are hashed.
+  if (
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/node_modules/')
+  ) return;
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

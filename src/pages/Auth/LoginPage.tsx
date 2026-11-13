@@ -22,6 +22,7 @@ import {
   apiVerifyOtpLogin
 } from '../../services/api';
 import { getAdminDrivers } from '../Admin/adminData';
+import { beginCustomerSession, beginAdminSession, beginDriverSession } from '../../services/authSession';
 import { ForgotPasswordModal } from '../../components/auth/ForgotPasswordModal';
 
 export type UserRole = 'customer' | 'driver' | 'admin';
@@ -83,13 +84,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
 
   // Shared customer-session setup (used by password login, signup and OTP login)
   const startCustomerSession = (res: any, fallbackEmail = '') => {
-        localStorage.removeItem('activeSubscription');
-        localStorage.setItem('token', res.token);
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('user', JSON.stringify(res.user));
-    localStorage.setItem('userName', res.user?.name || 'Customer');
-    localStorage.setItem('userEmail', res.user?.email || fallbackEmail);
-    window.dispatchEvent(new Event('auth-change'));
+    beginCustomerSession(res, fallbackEmail);
   };
 
   const handleSendOtp = async (e?: React.FormEvent) => {
@@ -224,14 +219,8 @@ export function LoginPage({ initialMode }: LoginPageProps) {
           return;
         }
 
-        localStorage.removeItem('activeSubscription');
-        localStorage.setItem('token', res.token);
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('user', JSON.stringify(res.user));
-        localStorage.setItem('userName', res.user?.name || name.trim());
-        localStorage.setItem('userEmail', res.user?.email || cleanEmail.toLowerCase());
+        startCustomerSession(res, cleanEmail.toLowerCase());
 
-        window.dispatchEvent(new Event('auth-change'));
         toast.success(`Welcome to SHIFT24, ${res.user?.name || name}! Account created.`);
         navigate('/profile', { replace: true });
         return;
@@ -255,13 +244,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
         // (built-in admin/staff/kitchen and any custom role created in Roles & Permissions).
         if (role && role !== 'customer' && role !== 'driver') {
           // Admin Session
-          localStorage.setItem('adminToken', res.token);
-          localStorage.setItem('isAdminLoggedIn', 'true');
-          localStorage.setItem('adminUser', JSON.stringify(res.user));
-          localStorage.setItem('token', res.token);
-          localStorage.setItem('isLoggedIn', 'true');
-          localStorage.setItem('user', JSON.stringify(res.user));
-          window.dispatchEvent(new Event('auth-change'));
+          beginAdminSession(res);
 
           toast.success(`Welcome to Operations, ${res.user.name || 'Admin'}!`);
           navigate('/admin', { replace: true });
@@ -270,10 +253,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
 
         if (role === 'driver') {
           // Driver Session
-          localStorage.setItem('driverToken', res.token);
-          localStorage.setItem('isDriverLoggedIn', 'true');
-          localStorage.setItem('driverUser', JSON.stringify(res.driver || res.user));
-          window.dispatchEvent(new Event('auth-change'));
+          beginDriverSession(res.driver || res.user, res.token);
 
           toast.success(`Welcome to Driver Portal, ${res.user.name || 'Driver'}!`);
           navigate('/driver', { replace: true });
@@ -281,13 +261,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
         }
 
         // Customer Session (default)
-        localStorage.removeItem('activeSubscription');
-        localStorage.setItem('token', res.token);
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('user', JSON.stringify(res.user));
-        localStorage.setItem('userName', res.user.name || 'Customer');
-        localStorage.setItem('userEmail', res.user.email || cleanEmail.toLowerCase());
-        window.dispatchEvent(new Event('auth-change'));
+        startCustomerSession(res, cleanEmail.toLowerCase());
 
         toast.success(`Welcome back, ${res.user.name || 'Customer'}!`);
         const from = location.state?.from?.pathname || '/profile';
@@ -301,13 +275,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
       try {
         const adminRes = await apiAdminLogin(cleanEmail, cleanPassword);
         if (adminRes && adminRes.success && adminRes.user) {
-          localStorage.setItem('adminToken', adminRes.token);
-          localStorage.setItem('isAdminLoggedIn', 'true');
-          localStorage.setItem('adminUser', JSON.stringify(adminRes.user));
-          localStorage.setItem('token', adminRes.token);
-          localStorage.setItem('isLoggedIn', 'true');
-          localStorage.setItem('user', JSON.stringify(adminRes.user));
-          window.dispatchEvent(new Event('auth-change'));
+          beginAdminSession(adminRes);
 
           toast.success(`Welcome to Operations, ${adminRes.user.name || 'Admin'}!`);
           navigate('/admin', { replace: true });
@@ -323,12 +291,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
       try {
         const driverRes = await apiDriverLogin(cleanEmail, cleanPassword);
         if (driverRes && driverRes.success && driverRes.driver) {
-          localStorage.setItem('isDriverLoggedIn', 'true');
-          localStorage.setItem('driverUser', JSON.stringify(driverRes.driver));
-          if (driverRes.token) {
-            localStorage.setItem('driverToken', driverRes.token);
-          }
-          window.dispatchEvent(new Event('auth-change'));
+          beginDriverSession(driverRes.driver, driverRes.token);
 
           toast.success(`Welcome to Driver Portal, ${driverRes.driver.name}!`);
           navigate('/driver', { replace: true });
@@ -353,9 +316,7 @@ export function LoginPage({ initialMode }: LoginPageProps) {
       if (matched) {
         const driverPass = matched.password || 'driver123';
         if (cleanPassword === driverPass) {
-          localStorage.setItem('isDriverLoggedIn', 'true');
-          localStorage.setItem('driverUser', JSON.stringify(matched));
-          window.dispatchEvent(new Event('auth-change'));
+          beginDriverSession(matched);
 
           toast.success(`Logged in as ${matched.name} (Driver Portal)`);
           navigate('/driver', { replace: true });

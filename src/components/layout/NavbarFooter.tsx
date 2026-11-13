@@ -27,19 +27,11 @@ export function Navbar() {
 
   useEffect(() => {
     const checkAuth = () => {
-      const isCust = localStorage.getItem('isLoggedIn') === 'true';
-      const isAdm = localStorage.getItem('isAdminLoggedIn') === 'true';
-      const isDrv = localStorage.getItem('isDriverLoggedIn') === 'true';
-      const authenticated = isCust || isAdm || isDrv;
-      setIsLoggedIn(authenticated);
-      
-      if (isAdm) {
-        setUserName('Admin');
-      } else if (isDrv) {
-        setUserName('Driver');
-      } else {
-        setUserName(localStorage.getItem('userName') || 'Customer');
-      }
+      // The public site only reflects a customer session. Admin and driver
+      // credentials belong to their own portals and must not appear here.
+      const isCustomer = localStorage.getItem('isLoggedIn') === 'true';
+      setIsLoggedIn(isCustomer);
+      setUserName(isCustomer ? (localStorage.getItem('userName') || 'Customer') : '');
     };
     
     checkAuth();
@@ -128,7 +120,7 @@ export function Navbar() {
     const seenNotifsKey = 'shift24_seen_browser_notifs';
     const getSeenSet = (): Set<string> => {
       try {
-        const raw = sessionStorage.getItem(seenNotifsKey);
+        const raw = localStorage.getItem(seenNotifsKey);
         return new Set(raw ? JSON.parse(raw) : []);
       } catch {
         return new Set();
@@ -138,12 +130,12 @@ export function Navbar() {
       try {
         const s = getSeenSet();
         s.add(id);
-        sessionStorage.setItem(seenNotifsKey, JSON.stringify(Array.from(s)));
+        localStorage.setItem(seenNotifsKey, JSON.stringify(Array.from(s)));
       } catch {}
     };
 
     const updateUnread = async (isBackgroundPoll = false) => {
-      const isAuth = localStorage.getItem('isLoggedIn') === 'true' || localStorage.getItem('isAdminLoggedIn') === 'true' || localStorage.getItem('isDriverLoggedIn') === 'true';
+      const isAuth = localStorage.getItem('isLoggedIn') === 'true';
       if (!isAuth) {
         if (isMounted) setUnreadCount(0);
         return;

@@ -48,6 +48,7 @@ import {
   updateBackendDriver,
   fetchKitchenSettings
 } from '../../services/api';
+import { clearAllSessions } from '../../services/authSession';
 import {
   calculateDistanceKm,
   formatDistance,
@@ -649,12 +650,7 @@ export function DriverPortal() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('isDriverLoggedIn');
-    localStorage.removeItem('driverUser');
-    localStorage.removeItem('driverToken');
-    localStorage.removeItem('isLoggedIn');
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAllSessions();
     window.dispatchEvent(new Event('auth-change'));
     toast.success('Logged out from Driver Portal');
     navigate('/driver/login');

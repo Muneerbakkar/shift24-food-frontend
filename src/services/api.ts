@@ -1,5 +1,7 @@
 // Shift24 API Client Service with JWT & Session Support
 
+import { clearAdminSession } from './authSession';
+
 const rawBase = ((import.meta as any).env?.VITE_API_BASE_URL || '/api').trim().replace(/\/+$/, '');
 const API_BASE = rawBase.endsWith('/api') ? rawBase : `${rawBase}/api`;
 
@@ -20,10 +22,14 @@ function getAuthHeaders(customHeaders: Record<string, string> = {}) {
     return headers;
   }
 
-  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
-  const rawToken = isAdminRoute
-    ? (localStorage.getItem('adminToken') || localStorage.getItem('token'))
-    : (localStorage.getItem('token') || localStorage.getItem('adminToken'));
+  // Each portal reads only its own token. Falling back to another portal's
+  // token is what used to leak an admin session into customer requests.
+  const path = typeof window !== 'undefined' ? window.location.pathname : '';
+  const rawToken = path.startsWith('/admin')
+    ? localStorage.getItem('adminToken')
+    : path.startsWith('/driver')
+    ? localStorage.getItem('driverToken')
+    : localStorage.getItem('token');
 
   const token = (rawToken && JWT_SHAPE.test(rawToken.trim())) ? rawToken.trim() : null;
 
@@ -41,8 +47,7 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 
   // If 401 Unauthorized in an admin view, clear expired admin session
   if (res.status === 401 && typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('isAdminLoggedIn');
+    clearAdminSession();
   }
 
   return res;
@@ -227,6 +232,16 @@ export async function apiLogout() {
 export async function fetchSubscriptions(params?: { plan?: string; status?: string; search?: string; email?: string }) {
   const query = new URLSearchParams(params as any).toString();
   const res = await fetch(`${API_BASE}/subscriptions${query ? `?${query}` : ''}`, {
+    credentials: 'include',
+    headers: getAuthHeaders()
+  });
+  return res.json();
+}
+
+
+/** Subscriptions belonging to the signed-in customer (server resolves identity). */
+export async function fetchMySubscriptions() {
+  const res = await fetch(`${API_BASE}/subscriptions/mine`, {
     credentials: 'include',
     headers: getAuthHeaders()
   });
