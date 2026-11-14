@@ -401,13 +401,31 @@ export function Footer() {
           <div className="lg:col-span-1">
             <h4 className="font-semibold text-emerald-700 uppercase tracking-wide mb-4 text-[15px]">Follow Us</h4>
             <div className="flex gap-4">
-              <a href="#" className="text-slate-600 hover:text-emerald-600 transition-colors">
+              <a
+                href="https://www.facebook.com/shift24.in"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Shift24 on Facebook"
+                className="text-slate-600 hover:text-emerald-600 transition-colors"
+              >
                 <Facebook className="w-[22px] h-[22px]" strokeWidth={2.5} />
               </a>
-              <a href="#" className="text-slate-600 hover:text-emerald-600 transition-colors">
+              <a
+                href="https://www.instagram.com/shift24.in/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Shift24 on Instagram"
+                className="text-slate-600 hover:text-emerald-600 transition-colors"
+              >
                 <Instagram className="w-[22px] h-[22px]" strokeWidth={2.5} />
               </a>
-              <a href="#" className="text-slate-600 hover:text-emerald-600 transition-colors flex items-center justify-center">
+              <a
+                href="https://www.youtube.com/@shift24"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Shift24 on YouTube"
+                className="text-slate-600 hover:text-emerald-600 transition-colors flex items-center justify-center"
+              >
                 <Youtube className="w-[22px] h-[22px]" strokeWidth={2.5} />
               </a>
             </div>
