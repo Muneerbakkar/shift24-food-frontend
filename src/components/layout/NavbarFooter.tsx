@@ -1,4 +1,4 @@
-import { Menu as MenuIcon, X, Facebook, Instagram, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone, Download } from 'lucide-react';
+import { Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -419,6 +419,13 @@ export function Footer() {
               >
                 <Instagram className="w-[22px] h-[22px]" strokeWidth={2.5} />
               </a>
+              <span
+                title="YouTube — coming soon"
+                aria-label="Shift24 on YouTube (coming soon)"
+                className="text-slate-400 flex items-center justify-center cursor-default"
+              >
+                <Youtube className="w-[22px] h-[22px]" strokeWidth={2.5} />
+              </span>
             </div>
           </div>
         </div>
