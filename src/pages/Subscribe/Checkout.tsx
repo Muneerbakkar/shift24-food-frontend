@@ -2127,10 +2127,10 @@ export function CheckoutDetails() {
                   <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500 shrink-0 mt-0.5" />
                   <span className="text-slate-700 font-medium">
                     {mealsPerDay === '1' 
-                      ? `1 Chef-prepared meal daily (${selectedSlot.toUpperCase()})` 
+                      ? `1 Freshly prepared meal daily (${selectedSlot.toUpperCase()})` 
                       : mealsPerDay === '2'
-                      ? `2 Chef-prepared meals daily (${(twoMealLabels[selectedSlot] || 'BREAKFAST & LUNCH').toUpperCase()})`
-                      : `${mealsPerDay} Chef-prepared meals daily`}
+                      ? `2 Freshly prepared meals daily (${(twoMealLabels[selectedSlot] || 'BREAKFAST & LUNCH').toUpperCase()})`
+                      : `${mealsPerDay} Freshly prepared meals daily`}
                   </span>
                 </li>
                 <li className="flex items-start gap-2.5 sm:gap-3">

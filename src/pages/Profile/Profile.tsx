@@ -1868,7 +1868,7 @@ export function ProfilePage() {
                         </div>
                         <h3 className="text-lg font-bold text-slate-900 mb-1">No Active Subscriptions Yet</h3>
                         <p className="text-slate-500 text-sm max-w-md mx-auto mb-6">
-                          You haven't subscribed to any meal routine yet. Choose from our 1-Day Trial, 7-Day Plan, or 30-Day Plan to get fresh chef-cooked meals delivered daily.
+                          You haven't subscribed to any meal routine yet. Choose from our 1-Day Trial, 7-Day Plan, or 30-Day Plan to get fresh, home-style meals delivered daily.
                         </p>
                         <Link 
                           to="/subscribe" 
@@ -2252,7 +2252,7 @@ export function ProfilePage() {
                           Earn Real Cash by Sharing Healthy Living
                         </h3>
                         <p className="text-xs sm:text-sm text-emerald-100 leading-relaxed">
-                          Give your friends access to clean, chef-prepared meal plans. When a friend signs up using your code and completes their 30-Day Monthly Plan, our team verifies and sends ₹500 directly to you via GPay or UPI!
+                          Give your friends access to clean, freshly prepared meal plans. When a friend signs up using your code and completes their 30-Day Monthly Plan, our team verifies and sends ₹500 directly to you via GPay or UPI!
                         </p>
                       </div>
                     </div>
@@ -2327,7 +2327,7 @@ export function ProfilePage() {
                           href={
                             referralData?.referralCode
                               ? `https://wa.me/?text=${encodeURIComponent(
-                                  `Hey! I'm enjoying chef-prepared healthy meals delivered fresh daily by Shift24 in Kochi. Subscribe to any 30-Day Monthly Meal Plan using my referral link: ${window.location.origin}/subscribe?ref=${referralData.referralCode} or code: ${referralData.referralCode}!`
+                                  `Hey! I'm enjoying freshly prepared healthy meals delivered fresh daily by Shift24 in Kochi. Subscribe to any 30-Day Monthly Meal Plan using my referral link: ${window.location.origin}/subscribe?ref=${referralData.referralCode} or code: ${referralData.referralCode}!`
                                 )}`
                               : '#'
                           }

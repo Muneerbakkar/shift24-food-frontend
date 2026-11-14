@@ -56,7 +56,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/about" element={<AboutUs />} />
           <Route path="/contact" element={<ContactUs />} />
-          {/* Menu Explorer page displays all plans and their daily chef menus */}
+          {/* Menu Explorer page displays all plans and their daily menus */}
           <Route path="/menu" element={<MenuExplorer />} />
           <Route path="/menu/category/:category" element={ENABLE_MENU ? <CategoryProducts /> : <Navigate to="/menu" replace />} />
           <Route path="/menu/product/:id" element={ENABLE_MENU ? <ProductDetails /> : <Navigate to="/menu" replace />} />

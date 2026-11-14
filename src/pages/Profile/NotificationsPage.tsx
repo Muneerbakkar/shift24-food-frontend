@@ -321,7 +321,7 @@ export function NotificationsPage() {
               Sign in to view your notifications
             </h2>
             <p className="text-slate-500 text-sm max-w-sm mx-auto mb-6 leading-relaxed">
-              Notifications contain your personalized meal schedules, chef cooking updates, and delivery tracking in Kakkanad. Please sign in to access your updates.
+              Notifications contain your personalized meal schedules, cooking updates, and delivery tracking in Kakkanad. Please sign in to access your updates.
             </p>
             <Link 
               to="/login"

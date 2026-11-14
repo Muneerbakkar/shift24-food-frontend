@@ -361,7 +361,7 @@ export function AdminKitchen() {
               <div key={dishName} className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
                 <div>
                   <div className="font-extrabold text-slate-900 text-sm">{dishName}</div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">Chef-standard recipe</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Standard recipe</div>
                 </div>
                 <div className="text-right">
                   <span className="text-2xl font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-200">

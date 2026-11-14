@@ -45,7 +45,7 @@ function formatFoodItem(item: any, planId: string) {
     cals: item.calories || '450 kcal',
     desc: item.description || `${item.name} prepared fresh according to your ${planId} targets.`,
     image: item.image || '',
-    benefits: item.benefits && item.benefits.length > 0 ? item.benefits : ['Chef crafted', 'Balanced nutrition', 'High quality ingredients'],
+    benefits: item.benefits && item.benefits.length > 0 ? item.benefits : ['Freshly prepared', 'Balanced nutrition', 'High quality ingredients'],
     macros: {
       protein: item.protein || '25g',
       carbs: item.carbs || '40g',
@@ -115,13 +115,13 @@ export function getFoodForPlanAndDay(planId: string, day: number, mealType: 'bre
     return formatFoodItem(cycleMatch, planId);
   }
 
-  // 4. Clean chef-curated fallback
+  // 4. Clean freshly prepared fallback
   return {
     name: `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} Special`,
     cals: '450 kcal',
-    desc: `Chef-crafted fresh meal tailored for the ${planId} plan.`,
+    desc: `Freshly prepared meal tailored for the ${planId} plan.`,
     image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=800',
-    benefits: ['Chef Crafted', 'Balanced Nutrition', 'High Quality Ingredients'],
+    benefits: ['Freshly Prepared', 'Balanced Nutrition', 'High Quality Ingredients'],
     macros: { protein: '30g', carbs: '40g', fat: '15g', fiber: '' },
     micros: ['Iron', 'Potassium', 'Vitamin C'],
     ingredients: []
@@ -172,7 +172,7 @@ export function SubscriptionPlan() {
     subtitle: adminPlan?.subtitle || 'Customize your daily meal routine and subscription duration. The longer you commit, the more you save.',
     pricePerWeek: adminPlan?.pricePerWeek || 2800,
     calories: adminPlan?.calories || '1800 - 2000 kcal/day',
-    description: adminPlan?.description || 'Personalized chef-crafted nutrition program.',
+    description: adminPlan?.description || 'Personalized nutrition plan, prepared fresh daily.',
     durationOptions: (adminPlan?.durationOptions && adminPlan.durationOptions.length > 0)
       ? adminPlan.durationOptions
       : DEFAULT_DURATION_OPTIONS,
@@ -1091,7 +1091,7 @@ export function MenuExplorer() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 mb-6">Explore Our Menus</h1>
-          <p className="text-xl text-slate-600 max-w-2xl mx-auto">Preview the delicious, chef-crafted meals you'll enjoy on each of our specialized diet plans.</p>
+          <p className="text-xl text-slate-600 max-w-2xl mx-auto">Preview the delicious, freshly prepared meals you'll enjoy on each of our specialized diet plans.</p>
         </div>
         
         <div className="bg-white rounded-2xl md:rounded-3xl p-6 md:p-12 shadow-sm border border-slate-200">

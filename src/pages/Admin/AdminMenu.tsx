@@ -462,7 +462,7 @@ export function AdminMenu() {
       id: slug,
       title: newPlanForm.title.trim(),
       subtitle: 'Customize your daily meal routine and subscription duration. The longer you commit, the more you save.',
-      description: newPlanForm.description.trim() || 'Custom chef meal plan',
+      description: newPlanForm.description.trim() || 'Custom meal plan',
       pricePerWeek: Number(newPlanForm.pricePerWeek) || 3000,
       calories: newPlanForm.calories.trim() || '1500 - 2000 kcal/day',
       benefits: newPlanForm.benefits.split(',').map(s => s.trim()).filter(Boolean),
@@ -540,7 +540,7 @@ export function AdminMenu() {
       carbs: '40g',
       fat: '15g',
       fiber: '',
-      benefits: 'Clean Fuel, Chef Prepared, Nutrient Rich',
+      benefits: 'Clean Fuel, Freshly Prepared, Nutrient Rich',
       // No stock default: a new dish starts without a photo so only real uploads show on the site.
       image: '',
       images: [],
@@ -1368,7 +1368,7 @@ export function AdminMenu() {
                 <label className="block font-bold text-slate-700 mb-1">Dish Description & Culinary Notes</label>
                 <textarea
                   rows={2}
-                  placeholder="Key culinary preparation details, chef instructions..."
+                  placeholder="Key culinary preparation details, preparation notes..."
                   value={foodForm.description}
                   onChange={(e) => setFoodForm({ ...foodForm, description: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"

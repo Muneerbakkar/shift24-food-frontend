@@ -246,7 +246,7 @@ export const DEFAULT_DURATION_OPTIONS: IDurationOption[] = [
     id: '1-day',
     title: '1-Day Trial',
     days: 1,
-    description: 'Taste-test our chef-prepared healthy meals for a day.',
+    description: 'Taste-test our freshly prepared healthy meals for a day.',
     discount: 0,
     popular: false,
     badge: '',
@@ -297,10 +297,10 @@ const INITIAL_PLANS: AdminPlanConfig[] = [
     id: 'healthy-food',
     title: 'Healthy Food',
     subtitle: 'Customize your daily meal routine and subscription duration. The longer you commit, the more you save.',
-    description: 'Fresh chef-prepared healthy meals crafted daily with clean, nutrient-dense ingredients.',
+    description: 'Freshly prepared healthy meals crafted daily with clean, nutrient-dense ingredients.',
     pricePerWeek: 2800,
     calories: '1500 - 2000 kcal/day',
-    benefits: ['100% clean ingredients', 'Chef-prepared fresh daily', 'Balanced nutrition & macros', 'Free doorstep delivery'],
+    benefits: ['100% clean ingredients', 'Prepared fresh daily', 'Balanced nutrition & macros', 'Free doorstep delivery'],
     durationOptions: DEFAULT_DURATION_OPTIONS,
     mealOptions: DEFAULT_MEAL_OPTIONS,
     active: true,
@@ -607,7 +607,7 @@ export function syncLocalOrdersFromSubscriptions(subs?: AdminSubscription[], opt
     const tomorrowISO = getLocalDateISO(tomorrowObj);
 
     const breakfastVarieties = [
-      'Chef Breakfast',
+      'Home-Style Breakfast',
       'Protein Oatmeal & Fresh Berries',
       'Scrambled Eggs & Sourdough Toast',
       'Greek Yogurt Protein Parfait',
@@ -930,7 +930,7 @@ export function projectOrdersForDate(targetDateISO: string, subs?: AdminSubscrip
     const fullDeliveryDate = `${labelPrefix} (${targetDateISO})`;
 
     const breakfastVarieties = [
-      'Chef Breakfast',
+      'Home-Style Breakfast',
       'Protein Oatmeal & Fresh Berries',
       'Scrambled Eggs & Sourdough Toast',
       'Greek Yogurt Protein Parfait',

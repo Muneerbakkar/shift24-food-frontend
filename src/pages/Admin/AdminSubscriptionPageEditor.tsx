@@ -100,7 +100,7 @@ export function AdminSubscriptionPageEditor({
     pricePerWeek: 3000,
     dailyCommission: 100,
     calories: '1500 - 2000 kcal/day',
-    description: 'Fresh chef-prepared meals crafted to meet your goals.',
+    description: 'Freshly prepared meals crafted to meet your goals.',
     benefitsText: 'High protein\nBalanced macros\nNutrient dense',
     popular: false,
     badge: 'MOST POPULAR'
@@ -446,7 +446,7 @@ export function AdminSubscriptionPageEditor({
       pricePerWeek: 3000,
       dailyCommission: getAdminCommissionRate(),
       calories: '1500 - 2000 kcal/day',
-      description: 'Fresh chef-prepared meals crafted to meet your goals.',
+      description: 'Freshly prepared meals crafted to meet your goals.',
       benefitsText: 'High protein\nBalanced macros\nNutrient dense',
       popular: false,
       badge: 'MOST POPULAR'
@@ -1657,7 +1657,7 @@ export function AdminSubscriptionPageEditor({
                   value={addPlanForm.description}
                   onChange={(e) => setAddPlanForm({ ...addPlanForm, description: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-medium text-slate-800"
-                  placeholder="Fresh chef-prepared meals crafted to meet your goals."
+                  placeholder="Freshly prepared meals crafted to meet your goals."
                 />
               </div>
 

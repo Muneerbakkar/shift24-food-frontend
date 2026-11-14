@@ -18,13 +18,13 @@ export function HowItWorks() {
     {
       icon: ClipboardList,
       title: "1. Choose Your Plan",
-      description: "Enjoy our wholesome, chef-curated healthy meal plan, thoughtfully crafted and suitable for everyone.",
+      description: "Enjoy our wholesome, freshly prepared healthy meal plan, thoughtfully crafted and suitable for everyone.",
       color: "bg-blue-50 text-blue-500 border-blue-100"
     },
     {
       icon: ChefHat,
       title: "2. We Cook Fresh",
-      description: "Our expert chefs prepare your meals using 100% organic, locally-sourced ingredients.",
+      description: "Our kitchen prepares your meals fresh every day using locally sourced ingredients.",
       color: "bg-emerald-50 text-emerald-500 border-emerald-100"
     },
     {
@@ -92,8 +92,8 @@ export function FeaturedCarousel() {
     },
     {
       src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1794586741/shift24/menu/vm3dkuebpwtugwxh3oc3.jpg",
-      title: "Chef Crafted",
-      subtitle: "Gourmet flavors without the guilt."
+      title: "Home-Style",
+      subtitle: "Comforting flavors without the guilt."
     },
     {
       src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1793973093/shift24/menu/uyftl8t8uurhd2c8fsrb.jpg",
@@ -421,7 +421,7 @@ export function AboutTheFood() {
           >
             <img 
               src="https://images.unsplash.com/photo-1577219491135-ce391730fb2c?auto=format&fit=crop&q=80&w=1600" 
-              alt="Chef cooking" 
+              alt="Fresh meal preparation" 
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
             />
             <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -548,7 +548,7 @@ export function AboutUs() {
             <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8">Who We Are</h2>
             <div className="space-y-6 text-[17px] text-slate-600 leading-relaxed">
               <p>
-                We're <span className="text-emerald-700 font-semibold">Shift24</span> — a healthy food delivery service on a mission to make eating well easy, reliable, and genuinely delicious. Our meals are designed by chefs and reviewed by a nutritionist, so you get the right balance of quality ingredients and consistent nutrition in every order.
+                We're <span className="text-emerald-700 font-semibold">Shift24</span> — a healthy food delivery service on a mission to make eating well easy, reliable, and genuinely delicious. Our meals are built around balanced nutrition, so you get the right mix of quality ingredients and consistent nutrition in every order.
               </p>
               <p>
                 From sourcing clean produce to mindful portioning and daily-fresh prep, quality is at the center of what we do. We pack with <span className="font-semibold text-slate-700">eco-friendly materials</span> and keep the journey from kitchen to your door smooth and safe.
@@ -565,7 +565,7 @@ export function AboutUs() {
             <div className="absolute inset-0 bg-emerald-100 rounded-2xl md:rounded-[32px] transform translate-x-3 translate-y-3 md:translate-x-4 md:translate-y-4"></div>
             <img 
               src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?auto=format&fit=crop&q=80&w=1000" 
-              alt="Chef preparing healthy food" 
+              alt="Preparing healthy food" 
               className="relative z-10 w-full h-full object-cover rounded-2xl md:rounded-[32px] shadow-sm border border-slate-200" 
             />
           </div>
@@ -578,7 +578,7 @@ export function AboutUs() {
             <div>
               <h3 className="text-[17px] font-semibold text-slate-800 mb-2">Elevating Every Meal Experience</h3>
               <p>
-                Shift24 blends nutrition-first recipes with chef-crafted flavor. From wholesome salads and bowls to thoughtfully prepared breakfasts and healthy drinks, we don't just deliver meals—we deliver a daily commitment to your well-being.
+                Shift24 blends nutrition-first recipes with home-style flavor. From wholesome salads and bowls to thoughtfully prepared breakfasts and healthy drinks, we don't just deliver meals—we deliver a daily commitment to your well-being.
               </p>
             </div>
             <div>

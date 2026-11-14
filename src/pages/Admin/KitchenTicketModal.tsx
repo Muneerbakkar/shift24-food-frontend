@@ -208,7 +208,7 @@ export function printKitchenTicketSlip(params: {
             </div>
           </div>
 
-          <!-- SECTION 4: CHEF SIGN-OFF -->
+          <!-- SECTION 4: PREPARATION SIGN-OFF -->
           <div style="margin-top: 14px; padding-top: 8px; border-top: 1px dashed #94a3b8; font-size: 9px; line-height: 1.5;">
             <div style="display: flex; justify-content: space-between; align-items: flex-end;">
               <div>
@@ -216,7 +216,7 @@ export function printKitchenTicketSlip(params: {
                 <div>Temp Logged: [  ] YES</div>
               </div>
               <div style="text-align: right;">
-                <div>Chef Sign: _______________</div>
+                <div>Prepared By: _______________</div>
               </div>
             </div>
             <div style="text-align: center; color: #94a3b8; font-size: 8px; margin-top: 6px;">
@@ -508,7 +508,7 @@ export function KitchenTicketModal({
                   <div>Temp Logged: [  ] YES</div>
                 </div>
                 <div className="text-right">
-                  <div>Chef Sign: ____________</div>
+                  <div>Prepared By: ____________</div>
                 </div>
               </div>
               <div className="text-center text-slate-400 text-[8px] pt-2">
