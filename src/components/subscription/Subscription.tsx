@@ -544,35 +544,37 @@ export function PlanMenu() {
 
           {/* Duration selector pill buttons */}
           {durationOptions.length > 1 && (
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Preview Duration:</span>
-              {durationOptions.map((opt: any) => {
-                const isSelected = activeDurationId === opt.id || String(opt.days) === activeDurationId;
-                return (
-                  <button
-                    key={opt.id}
-                    onClick={() => setActiveDurationId(opt.id)}
-                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                      isSelected 
-                        ? 'bg-slate-900 text-white shadow-sm ring-2 ring-emerald-500' 
-                        : 'bg-white text-slate-600 border border-slate-200 hover:border-emerald-300'
-                    }`}
-                  >
-                    {opt.title || `${opt.days} Days`}
-                  </button>
-                );
-              })}
+            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-2">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider sm:mr-1">Preview Duration:</span>
+              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+                {durationOptions.map((opt: any) => {
+                  const isSelected = activeDurationId === opt.id || String(opt.days) === activeDurationId;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => setActiveDurationId(opt.id)}
+                      className={`px-3 sm:px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                        isSelected 
+                          ? 'bg-slate-900 text-white shadow-sm ring-2 ring-emerald-500' 
+                          : 'bg-white text-slate-600 border border-slate-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      {opt.title || `${opt.days} Days`}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
 
         {/* Meal Type Navigation Tabs */}
-        <div className="flex overflow-x-auto gap-4 pb-4 mb-8 justify-center snap-x hide-scrollbar">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-8 max-w-xl mx-auto">
           {(['breakfast', 'lunch', 'dinner'] as const).map((mealType) => (
             <button
               key={mealType}
               onClick={() => setSelectedMealType(mealType)}
-              className={`snap-center shrink-0 px-8 py-3 rounded-full font-bold transition-all capitalize cursor-pointer ${
+              className={`w-full px-2 py-2.5 sm:px-6 sm:py-3 rounded-full font-bold text-sm sm:text-base transition-all capitalize cursor-pointer ${
                 selectedMealType === mealType 
                   ? 'bg-emerald-600 text-white shadow-md' 
                   : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
