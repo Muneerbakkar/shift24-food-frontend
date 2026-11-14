@@ -425,7 +425,7 @@ export function Footer() {
         href="https://wa.me/917306406965" 
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-24 right-5 z-40 w-14 h-14 bg-[#25D366] hover:bg-[#1EBE5A] text-white rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105"
+        className="fixed bottom-20 right-5 z-40 w-14 h-14 bg-[#25D366] hover:bg-[#1EBE5A] text-white rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105"
         aria-label="Chat with us on WhatsApp"
       >
         <svg className="w-7 h-7 fill-current" viewBox="0 0 24 24" aria-hidden="true">
