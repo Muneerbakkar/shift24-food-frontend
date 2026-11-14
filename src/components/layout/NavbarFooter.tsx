@@ -1,4 +1,4 @@
-import { Menu as MenuIcon, X, Facebook, Instagram, Youtube, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone, Download } from 'lucide-react';
+import { Menu as MenuIcon, X, Facebook, Instagram, User, ShoppingCart, Bell, BellRing, Home, Info, Utensils, Calendar, Phone, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -418,15 +418,6 @@ export function Footer() {
                 className="text-slate-600 hover:text-emerald-600 transition-colors"
               >
                 <Instagram className="w-[22px] h-[22px]" strokeWidth={2.5} />
-              </a>
-              <a
-                href="https://www.youtube.com/@shift24"
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Shift24 on YouTube"
-                className="text-slate-600 hover:text-emerald-600 transition-colors flex items-center justify-center"
-              >
-                <Youtube className="w-[22px] h-[22px]" strokeWidth={2.5} />
               </a>
             </div>
           </div>
