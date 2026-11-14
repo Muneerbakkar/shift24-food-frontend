@@ -719,6 +719,9 @@ export function ContactUs() {
 
 export function Testimonials() {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const SWIPE_THRESHOLD = 40;
 
 const testimonials = [
     {
@@ -761,12 +764,36 @@ const testimonials = [
     setCurrentIndex((prevIndex) => (prevIndex - 1 + testimonials.length) % testimonials.length);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStart.current = { x: touch.clientX, y: touch.clientY };
+    setIsPaused(true);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    setIsPaused(false);
+    if (!start) return;
+
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    // Ignore taps and vertical scrolls so the page keeps scrolling naturally
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+
+    if (deltaX < 0) nextTestimonial();
+    else prevTestimonial();
+  };
+
   useEffect(() => {
+    if (isPaused) return;
     const timer = setInterval(() => {
       setCurrentIndex((prevIndex) => (prevIndex + 1) % testimonials.length);
     }, 6000);
     return () => clearInterval(timer);
-  }, [testimonials.length]);
+  }, [testimonials.length, isPaused]);
 
   return (
     <section className="py-10 md:py-16 bg-white relative overflow-hidden">
@@ -782,7 +809,7 @@ const testimonials = [
             <p className="text-slate-500 mb-8 max-w-sm mx-auto lg:mx-0">
               Don't just take our word for it. See what our Kakkanad community has to say about their Shift24 experience.
             </p>
-            <div className="flex items-center justify-center lg:justify-start gap-4">
+            <div className="hidden lg:flex items-center justify-start gap-4">
               <button 
                 onClick={prevTestimonial}
                 className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600 transition-colors shadow-sm"
@@ -801,8 +828,29 @@ const testimonials = [
           </div>
 
           {/* Right Column: Carousel Content */}
-          <div className="w-full lg:w-2/3 relative min-h-[260px] flex items-center">
+          <div
+            className="w-full lg:w-2/3 relative min-h-[260px] flex items-center touch-pan-y"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={() => { touchStart.current = null; setIsPaused(false); }}
+          >
             <Quote className="absolute -top-4 -left-4 md:-top-8 md:-left-8 w-16 h-16 text-slate-200/50 -rotate-12 z-0" />
+
+            {/* Mobile side arrows */}
+            <button
+              onClick={prevTestimonial}
+              className="lg:hidden absolute left-1 top-1/2 -translate-y-1/2 -translate-x-1/2 z-20 w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-700 shadow-md active:scale-95 transition-transform"
+              aria-label="Previous testimonial"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={nextTestimonial}
+              className="lg:hidden absolute right-1 top-1/2 -translate-y-1/2 translate-x-1/2 z-20 w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-700 shadow-md active:scale-95 transition-transform"
+              aria-label="Next testimonial"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
             
             <motion.div
               key={currentIndex}
