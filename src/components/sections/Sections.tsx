@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
 import { TrendingDown, Scale, TrendingUp, Sparkles, Flame, CheckCircle2, ArrowRight, MapPin, Mail, Phone, ChevronLeft, ChevronRight, ClipboardList, ChefHat, Truck, Utensils, Play, Star, Quote, Plus, Minus, MessageCircle, User } from 'lucide-react';
@@ -103,6 +103,9 @@ export function FeaturedCarousel() {
   ];
   
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const SWIPE_THRESHOLD = 40;
 
   const nextSlide = () => {
     setCurrentIndex((prev) => (prev === slides.length - 1 ? 0 : prev + 1));
@@ -112,15 +115,44 @@ export function FeaturedCarousel() {
     setCurrentIndex((prev) => (prev === 0 ? slides.length - 1 : prev - 1));
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStart.current = { x: touch.clientX, y: touch.clientY };
+    setIsPaused(true);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    setIsPaused(false);
+    if (!start) return;
+
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    // Ignore taps and vertical scrolls so page scrolling stays natural
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+
+    if (deltaX < 0) nextSlide();
+    else prevSlide();
+  };
+
   useEffect(() => {
+    if (isPaused) return;
     const timer = setInterval(nextSlide, 5000);
     return () => clearInterval(timer);
-  }, [currentIndex]);
+  }, [currentIndex, isPaused]);
 
   return (
     <section className="pt-8 pb-6 bg-white overflow-hidden relative">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative h-[350px] md:h-[450px] lg:h-[500px] xl:h-[600px] rounded-2xl md:rounded-[40px] overflow-hidden shadow-lg border border-slate-200 group">
+        <div
+          className="relative h-[350px] md:h-[450px] lg:h-[500px] xl:h-[600px] rounded-2xl md:rounded-[40px] overflow-hidden shadow-lg border border-slate-200 group touch-pan-y select-none"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={() => { touchStart.current = null; setIsPaused(false); }}
+        >
           <div 
             className="flex h-full transition-transform duration-700 ease-out" 
             style={{ transform: `translateX(-${currentIndex * 100}%)` }}
