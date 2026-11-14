@@ -76,27 +76,27 @@ export function HowItWorks() {
 export function FeaturedCarousel() {
   const slides = [
     {
-      src: "https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&q=80&w=1600",
+      src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1793824876/shift24/menu/ptfuzxytl63yvmmvmfkd.jpg",
       title: "Fresh & Vibrant",
       subtitle: "Nutrient-dense bowls for everyday vitality."
     },
     {
-      src: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&q=80&w=1600",
+      src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1794577523/shift24/menu/wttngdyxft2trhcjphbl.jpg",
       title: "Plant-Powered",
       subtitle: "Delicious greens to fuel your body and mind."
     },
     {
-      src: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?auto=format&fit=crop&q=80&w=1600",
+      src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1794578520/shift24/menu/qnobimdj3jc2cbd86amm.jpg",
       title: "Lean Protein",
       subtitle: "Perfectly balanced macros to support your goals."
     },
     {
-      src: "https://images.unsplash.com/photo-1532550907401-a500c9a57435?auto=format&fit=crop&q=80&w=1600",
+      src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1794586741/shift24/menu/vm3dkuebpwtugwxh3oc3.jpg",
       title: "Chef Crafted",
       subtitle: "Gourmet flavors without the guilt."
     },
     {
-      src: "https://images.unsplash.com/photo-1482049016688-2d3e1b311543?auto=format&fit=crop&q=80&w=1600",
+      src: "https://res.cloudinary.com/db7a8viqh/image/upload/w_1600,h_900,c_fill,q_auto,f_auto/v1793973093/shift24/menu/uyftl8t8uurhd2c8fsrb.jpg",
       title: "Guilt-Free Indulgence",
       subtitle: "Satisfy your cravings with wholesome ingredients."
     }
@@ -161,10 +161,10 @@ export function FeaturedCarousel() {
               <div key={i} className="w-full h-full flex-shrink-0 relative">
                 <img 
                   src={slide.src} 
-                  alt={`Featured meal ${i + 1}`} 
+                  alt={`${slide.title} — Shift24 dish`} 
                   className="w-full h-full object-cover" 
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent flex flex-col justify-end p-6 pb-24 md:p-16 md:pb-24">
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-slate-900/20 to-transparent flex flex-col justify-end p-6 pb-24 md:p-16 md:pb-24 [text-shadow:0_2px_10px_rgba(2,6,23,0.65)]">
                   <h3 className="text-2xl md:text-5xl font-bold text-white mb-3 tracking-tight">{slide.title}</h3>
                   <p className="text-lg md:text-xl text-slate-200 max-w-2xl">{slide.subtitle}</p>
                 </div>
