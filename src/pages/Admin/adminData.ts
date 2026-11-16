@@ -1076,11 +1076,14 @@ export function getAdminSales(): any[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const subs = getAdminSubscriptions();
-        const validSubIds = new Set(subs.map(s => s.id || (s as any).subId));
+        const validSubIds = new Set(
+          subs.flatMap(s => [s.id, (s as any).subId]).filter(Boolean)
+        );
         return parsed.filter(s => {
           if (isDummyCustomer(s)) return false;
-          if (s.source === 'Subscription' && validSubIds.size > 0) {
-            return validSubIds.has(s.linkedId) || validSubIds.has((s.saleId || '').replace(/^INV-/, 'SUB-'));
+          if (s.source === 'Subscription') {
+            const derivedSub = (s.saleId || '').replace(/^INV-/, 'SUB-');
+            return validSubIds.has(s.linkedId || '') || validSubIds.has(derivedSub) || validSubIds.has(s.paymentReference || '');
           }
           return true;
         });

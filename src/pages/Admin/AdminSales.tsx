@@ -258,10 +258,13 @@ export function AdminSales() {
     const derived = deriveSalesFromSubscriptions(subs, rate);
     const saved = getAdminSales();
     const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
-    const validSubIds = new Set(subs.map(s => s.id));
+    const validSubIds = new Set(
+      subs.flatMap(s => [s.id, (s as any).subId]).filter(Boolean)
+    );
     const nonOrphaned = validSaved.filter((s: any) => {
-      if (s.source === 'Subscription') return validSubIds.has(s.linkedId || '');
-      return true;
+      if (s.source !== 'Subscription') return true;
+      const derivedSub = (s.saleId || '').replace(/^INV-/, 'SUB-');
+      return validSubIds.has(s.linkedId || '') || validSubIds.has(derivedSub) || validSubIds.has(s.paymentReference || '');
     });
     return nonOrphaned.length > 0 ? nonOrphaned : derived;
   });
@@ -271,10 +274,13 @@ export function AdminSales() {
     const rate = getAdminCommissionRate();
     const saved = getAdminSales();
     const validSaved = saved.filter((s: any) => !isDummyCustomer(s));
-    const validSubIds = new Set(subs.map(s => s.id));
+    const validSubIds = new Set(
+      subs.flatMap(s => [s.id, (s as any).subId]).filter(Boolean)
+    );
     const nonOrphaned = validSaved.filter((s: any) => {
-      if (s.source === 'Subscription') return validSubIds.has(s.linkedId || '');
-      return true;
+      if (s.source !== 'Subscription') return true;
+      const derivedSub = (s.saleId || '').replace(/^INV-/, 'SUB-');
+      return validSubIds.has(s.linkedId || '') || validSubIds.has(derivedSub) || validSubIds.has(s.paymentReference || '');
     });
     const active = nonOrphaned.length > 0 ? nonOrphaned : deriveSalesFromSubscriptions(subs, rate);
     return calculateMetricsFromSales(active, rate);
@@ -335,14 +341,18 @@ export function AdminSales() {
     setLoading(true);
     const activeRate = getAdminCommissionRate();
     let currentSubs = getAdminSubscriptions();
+    let subsLoaded = false;
     try {
       const subRes = await fetchSubscriptions();
       if (subRes && subRes.success && Array.isArray(subRes.data)) {
         currentSubs = subRes.data;
+        subsLoaded = true;
       }
     } catch {}
 
-    const validSubIds = new Set(currentSubs.map((s: any) => s.id || s.subId));
+    const validSubIds = new Set(
+      currentSubs.flatMap((s: any) => [s.id, s.subId]).filter(Boolean)
+    );
 
     try {
       const params: any = {};
@@ -355,10 +365,12 @@ export function AdminSales() {
         const cleanSales: SaleItem[] = res.data
           .filter((s: any) => !isDummyCustomer(s))
           .filter((s: any) => {
-            if (s.source === 'Subscription') {
-              return validSubIds.size === 0 || validSubIds.has(s.linkedId) || validSubIds.has((s.saleId || '').replace(/^INV-/, 'SUB-'));
-            }
-            return true;
+            if (s.source !== 'Subscription' || !subsLoaded) return true;
+            // Drop sales whose subscription no longer exists (deleted or purged)
+            const linkedSub = s.linkedId || '';
+            const derivedSub = (s.saleId || '').replace(/^INV-/, 'SUB-');
+            const paymentRef = s.paymentReference || '';
+            return validSubIds.has(linkedSub) || validSubIds.has(derivedSub) || validSubIds.has(paymentRef);
           })
           .map((s: any) => {
             if (s.source === 'Subscription') {
